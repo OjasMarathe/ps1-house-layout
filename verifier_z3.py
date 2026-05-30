@@ -1,0 +1,148 @@
+"""Z3-backed verifier — the deterministic judge of the loop.
+
+Inputs a concrete `HouseGeometry` (corners + door) and checks each SBC rule.
+Returns a list of `Violation` records; empty list means the house passes.
+
+Z3 is used to evaluate the algebraic constraints (setbacks, dimensions, tree
+buffer). Point-in-polygon is handled in pure Python because Z3 adds no value
+when the corners are already concrete numbers.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+from z3 import Real, Solver, sat, RealVal
+
+from plot import Plot
+from constraints import SBCConstraints
+
+
+@dataclass(frozen=True)
+class HouseGeometry:
+    corners: tuple[tuple[float, float], ...]   # axis-aligned rect: SW, SE, NE, NW
+    door: tuple[float, float]                   # door midpoint
+
+
+@dataclass(frozen=True)
+class Violation:
+    rule: str
+    measured_ft: float
+    required_ft: float
+    message: str
+
+
+def _violated(measured: float, required: float) -> bool:
+    """True iff `measured < required` according to Z3. Demonstrates SMT use even
+    though the inputs are concrete — keeps the algebra in one place if we later
+    swap concrete numbers for symbolic ones (e.g. to *synthesize* a house)."""
+    s = Solver()
+    x = Real("x")
+    s.add(x == RealVal(measured))
+    s.add(x < RealVal(required))
+    return s.check() == sat
+
+
+def _point_in_polygon(p: tuple[float, float], poly: tuple[tuple[float, float], ...]) -> bool:
+    """Ray casting. Polygon may be CW or CCW; orientation irrelevant."""
+    x, y = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            x_intersect = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < x_intersect:
+                inside = not inside
+    return inside
+
+
+def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> list[Violation]:
+    """Returns list of SBC violations. Empty list = all rules satisfied."""
+    violations: list[Violation] = []
+
+    xs = [c[0] for c in house.corners]
+    ys = [c[1] for c in house.corners]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    door_x, door_y = house.door
+
+    px_min, py_min, px_max, py_max = plot.bbox
+    tcx, tcy = plot.tree_center
+
+    # --- Algebraic SBC constraints via Z3 ----------------------------------
+    algebraic = [
+        ("front_setback_south", y_min - py_min, sbc.front_setback_ft,
+         "South (entry-side) setback"),
+        ("rear_setback_north", py_max - y_max, sbc.rear_setback_ft,
+         "North (rear) setback"),
+        ("side_setback_west", x_min - px_min, sbc.side_setback_ft,
+         "West side setback"),
+        ("side_setback_east", px_max - x_max, sbc.side_setback_ft,
+         "East side setback"),
+        ("min_width_ew", x_max - x_min, sbc.min_house_width_ft,
+         "Minimum house width (E-W)"),
+        ("min_depth_ns", y_max - y_min, sbc.min_house_depth_ft,
+         "Minimum house depth (N-S)"),
+    ]
+    for rule, measured, required, label in algebraic:
+        if _violated(measured, required):
+            violations.append(Violation(
+                rule=rule, measured_ft=float(measured), required_ft=float(required),
+                message=f"{label} is {measured:.2f} ft, need ≥ {required:.2f} ft."))
+
+    # --- Tree protection (quadratic, also Z3-friendly) ---------------------
+    dx = max(0.0, x_min - tcx, tcx - x_max)
+    dy = max(0.0, y_min - tcy, tcy - y_max)
+    dist = (dx * dx + dy * dy) ** 0.5
+    min_dist = plot.tree_radius + sbc.tree_buffer_ft
+    if _violated(dist, min_dist):
+        violations.append(Violation(
+            rule="tree_buffer",
+            measured_ft=float(dist), required_ft=float(min_dist),
+            message=(f"House comes within {dist:.2f} ft of the protected tree "
+                     f"(center {plot.tree_center}); need ≥ {min_dist:.2f} ft "
+                     "(trunk + buffer). Tree CANNOT be removed.")))
+
+    # --- Door placement -----------------------------------------------------
+    if abs(door_y - y_min) > 0.5:
+        violations.append(Violation(
+            rule="door_on_south_wall",
+            measured_ft=float(door_y), required_ft=float(y_min),
+            message=(f"Door y={door_y:.2f} is not on the south wall of the "
+                     f"house (y_min={y_min:.2f}). SBC fire egress: main door "
+                     "and parking must be on the same (entry) side.")))
+
+    if not (x_min + sbc.door_corner_margin_ft <= door_x
+            <= x_max - sbc.door_corner_margin_ft):
+        violations.append(Violation(
+            rule="door_corner_margin",
+            measured_ft=float(door_x), required_ft=float(sbc.door_corner_margin_ft),
+            message=(f"Door x={door_x:.2f} is too close to a house corner; "
+                     f"need ≥ {sbc.door_corner_margin_ft} ft inset from both "
+                     f"corners (house spans x∈[{x_min:.2f}, {x_max:.2f}]).")))
+
+    if plot.entry_side == "S":
+        seg_xs = sorted([plot.entry_segment[0][0], plot.entry_segment[1][0]])
+        if not (seg_xs[0] <= door_x <= seg_xs[1]):
+            violations.append(Violation(
+                rule="door_within_entry_segment",
+                measured_ft=float(door_x), required_ft=float(seg_xs[0]),
+                message=(f"Door x={door_x:.2f} is outside the 40 ft entry "
+                         f"segment x∈[{seg_xs[0]:.0f}, {seg_xs[1]:.0f}]. The "
+                         "driveway must reach the door through this segment.")))
+
+    # --- Containment: all corners inside the L-shape -----------------------
+    for i, corner in enumerate(house.corners):
+        if not _point_in_polygon(corner, plot.boundary):
+            violations.append(Violation(
+                rule=f"corner_inside_plot[{i}]",
+                measured_ft=0.0, required_ft=0.0,
+                message=(f"House corner {corner} lies outside the L-shaped "
+                         "plot boundary. Pull the house in.")))
+
+    return violations
+
+
+def passes(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> bool:
+    return len(check(house, plot, sbc)) == 0
