@@ -13,7 +13,10 @@ from groq import Groq
 
 from verifier_z3 import Violation
 
-MODEL = os.environ.get("GROQ_MODEL", "moonshotai/kimi-k2-instruct")
+MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+
+TOTAL_RULES = 9  # SBC rules (8 hard + min_area_coverage)
 
 
 def _format_violations(violations: list[Violation]) -> str:
@@ -26,15 +29,24 @@ def _format_violations(violations: list[Violation]) -> str:
     return "\n".join(lines)
 
 
+def _header(violations: list[Violation]) -> str:
+    """Match the brief's expected feedback format (§1.2):
+       'Out of N constraints, you missed X — fix and regenerate.'"""
+    rules_missed = {v.rule for v in violations}
+    return (f"Out of {TOTAL_RULES} SBC constraints, you missed "
+            f"{len(rules_missed)} — fix and regenerate.")
+
+
 def explain(violations: list[Violation], iteration: int) -> str:
     """Return a feedback string suitable for passing back to A1."""
     if not violations:
         return ""
 
+    header = _header(violations)
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        # Graceful offline fallback: just join the raw messages
-        return _format_violations(violations)
+        # Graceful offline fallback: header + raw messages
+        return f"{header}\n\n{_format_violations(violations)}"
 
     client = Groq(api_key=api_key)
 
@@ -62,4 +74,5 @@ def explain(violations: list[Violation], iteration: int) -> str:
                   {"role": "user", "content": user}],
         temperature=0.2,
     )
-    return resp.choices[0].message.content.strip()
+    body = resp.choices[0].message.content.strip()
+    return f"{header}\n\n{body}"

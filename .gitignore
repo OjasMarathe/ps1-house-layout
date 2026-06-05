@@ -4,4 +4,7 @@ __pycache__/
 *.pyc
 output/*.dxf
 output/iter_*
+output/ext_iter_*
+output/int_iter_*
+node_modules/
 .DS_Store

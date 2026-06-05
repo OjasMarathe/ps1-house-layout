@@ -57,8 +57,13 @@ def _point_in_polygon(p: tuple[float, float], poly: tuple[tuple[float, float], .
     return inside
 
 
-def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> list[Violation]:
-    """Returns list of SBC violations. Empty list = all rules satisfied."""
+def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints,
+          max_legal_area: float | None = None) -> list[Violation]:
+    """Returns list of SBC violations. Empty list = all rules satisfied.
+
+    `max_legal_area`: theoretical maximum house area for this (plot, sbc)
+    pair, computed by `optimizer_z3.compute_max_area`. If provided, we enforce
+    `house_area >= sbc.min_area_fraction_of_max * max_legal_area`."""
     violations: list[Violation] = []
 
     xs = [c[0] for c in house.corners]
@@ -140,6 +145,22 @@ def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> list[Violati
                 measured_ft=0.0, required_ft=0.0,
                 message=(f"House corner {corner} lies outside the L-shaped "
                          "plot boundary. Pull the house in.")))
+
+    # --- Area coverage (brief: "maximize area") ----------------------------
+    if max_legal_area is not None:
+        area = (x_max - x_min) * (y_max - y_min)
+        required = sbc.min_area_fraction_of_max * max_legal_area
+        if _violated(area, required):
+            violations.append(Violation(
+                rule="min_area_coverage",
+                measured_ft=float(area), required_ft=float(required),
+                message=(f"House footprint is {area:.0f} sq ft "
+                         f"({area/max_legal_area*100:.1f}% of the Z3-computed "
+                         f"max {max_legal_area:.0f} sq ft). Brief requires "
+                         f"maximum area coverage — need ≥ {required:.0f} sq ft "
+                         f"({sbc.min_area_fraction_of_max*100:.0f}% of max). "
+                         "Expand the footprint by tightening any setback that "
+                         "has slack.")))
 
     return violations
 

@@ -22,31 +22,47 @@ MAX_RETRIES = int(os.environ.get("GEMINI_MAX_RETRIES", "4"))
 
 
 def _system_prompt(plot: Plot, sbc: SBCConstraints) -> str:
+    entry_x = sorted([plot.entry_segment[0][0], plot.entry_segment[1][0]])
+    entry_w = entry_x[1] - entry_x[0]
+    px_min, py_min, px_max, py_max = plot.bbox
+
     return dedent(f"""
-        You are an engineering-drawing assistant. Your job: write a Python
-        script using the `ezdxf` library that draws the outer periphery of a
-        single-family house and its main door on an L-shaped plot, following
-        Seattle Building Code (SBC).
+        You are an engineering-drawing assistant. Write a Python script using
+        the `ezdxf` library that draws the outer periphery of a single-family
+        house and its main door, following Seattle Building Code (SBC).
 
-        # Plot (units: feet, +x East, +y North, clockwise vertices)
-        Boundary polygon: {list(plot.boundary)}
-        Protected tree center: {plot.tree_center}, trunk radius: {plot.tree_radius} ft
-        Tree protection buffer: {sbc.tree_buffer_ft} ft (cannot be reduced; ~$50k fine)
-        Required entry side: {plot.entry_side} (south). Entry segment x∈[15, 55] at y=0.
+        # Plot (high-level)
+        Units: feet. +x East, +y North.
+        - Roughly L-shaped, overall bounding box {px_max - px_min:.0f} ft (E-W) × {py_max - py_min:.0f} ft (N-S).
+        - Most of the area is the main rectangular body.
+        - A protected tree sits at the TOP-RIGHT of the plot. It cannot be
+          removed or built on (~$50k fine). Treat the top-right corner of the
+          plot as off-limits with a generous margin.
+        - The ENTRY is on the SOUTH side: a {entry_w:.0f} ft wide segment
+          where the driveway, parking, and main door must all be reached.
 
-        # SBC rules you MUST satisfy
-        - Front (entry-side, south) setback ≥ {sbc.front_setback_ft} ft
-        - Rear (north) setback ≥ {sbc.rear_setback_ft} ft
-        - Side (east, west) setbacks ≥ {sbc.side_setback_ft} ft each
-        - Minimum house footprint ≥ {sbc.min_house_width_ft}×{sbc.min_house_depth_ft} ft
-        - House must stay fully inside the L-shaped polygon (no corner outside)
-        - Distance from house to tree center ≥ {plot.tree_radius + sbc.tree_buffer_ft} ft
-        - Door must lie on the south wall of the house AND within entry segment
-          x∈[15, 55], inset ≥ {sbc.door_corner_margin_ft} ft from house corners
-        - Maximize footprint area subject to the above
+        # YOUR PRIMARY OBJECTIVE
+        **Maximize the house footprint area.** Push the house outward to the
+        legal limit of every setback. Do not be conservative — leaving extra
+        space beyond setbacks is wasted area. Z3 will verify the geometry.
 
-        # House shape
-        Use an axis-aligned rectangle: 4 corners in order SW, SE, NE, NW.
+        # SBC rules (numeric thresholds; the layout itself is your design)
+        - Front (south, entry-side) setback ≥ {sbc.front_setback_ft:.0f} ft
+        - Rear (north) setback ≥ {sbc.rear_setback_ft:.0f} ft
+        - Side (east and west) setbacks ≥ {sbc.side_setback_ft:.0f} ft each
+        - Minimum footprint ≥ {sbc.min_house_width_ft:.0f}×{sbc.min_house_depth_ft:.0f} ft
+        - Stay clear of the protected tree (top-right area)
+        - All four corners must lie inside the plot. If the verifier later
+          reports a corner outside, you hit a notch/tab edge of the L-shape —
+          pull that corner in.
+        - House outline = axis-aligned rectangle, corners in order SW, SE, NE, NW
+        - Door on the house's south wall, within the south entry segment,
+          inset ≥ {sbc.door_corner_margin_ft:.0f} ft from both house corners
+        - **Footprint area ≥ {sbc.min_area_fraction_of_max*100:.0f}% of the
+          theoretical maximum** (the Z3 solver computes this max from the
+          setbacks alone; you don't need to know it, but a layout that just
+          satisfies setbacks with no slack will pass. A layout with slack on
+          any setback will fail this rule.)
 
         # OUTPUT FORMAT — MANDATORY, READ CAREFULLY
         Output ONLY a Python script (no markdown fence, no prose).
