@@ -24,12 +24,14 @@ from interior_verifier_z3 import InteriorLayout
 _KIND_COLOR = {
     "living":   CYAN,
     "kitchen":  MAGENTA,
+    "corridor": 8,        # grey (ACI 8)
     "bathroom": BLUE,
     "bedroom":  GREEN,
 }
 _KIND_LAYER = {
     "living":   "ROOM_LIVING",
     "kitchen":  "ROOM_KITCHEN",
+    "corridor": "CORRIDOR",
     "bathroom": "ROOM_BATH",
     "bedroom":  "ROOM_BEDROOM",
 }
@@ -101,12 +103,12 @@ def emit_full_dxf(house: HouseGeometry, interior: InteriorLayout,
 if __name__ == "__main__":
     from plot import PLOT
     from constraints import SBC
-    from interior_synth_z3 import synthesize
+    from interior_milp import solve_layout
 
-    fp = (5.0, 20.0, 70.0, 78.0)
+    fp = (5.0, 20.0, 68.0, 78.0)
     door = (40.0, 20.0)
     house = HouseGeometry(corners=((fp[0], fp[1]), (fp[2], fp[1]),
                                    (fp[2], fp[3]), (fp[0], fp[3])), door=door)
-    interior = synthesize(fp, door, SBC)
+    interior = solve_layout(fp, door, SBC).layout
     out = emit_full_dxf(house, interior, PLOT, Path("output/full_layout_demo.dxf"))
     print(f"wrote {out}")

@@ -48,44 +48,49 @@ def _system_prompt(footprint: tuple[float, float, float, float],
             y from {y0:.1f} to {y1:.1f}   ({D:.0f} ft deep, N-S)
         Front door is on the SOUTH wall at ({dx:.1f}, {dy:.1f}).
 
-        # Required rooms (the program — emit EXACTLY these 7)
+        # Required rooms (the program — emit EXACTLY these 8)
 {_program_lines()}
+        Bathrooms are ENSUITE: name them "Bath 1"/"Bath 2" and bedrooms
+        "Bedroom 1"/"Bedroom 2"/"Bedroom 3". Bath 1 attaches to Bedroom 1,
+        Bath 2 to Bedroom 2 (Bedroom 3 has no bathroom).
 
         # HARD RULES (Z3 will reject any violation)
         1. Every room is an axis-aligned rectangle fully inside the footprint.
-        2. Rooms must TILE the footprint: no overlaps, and NO GAPS. Every square
-           foot of the footprint belongs to exactly one room. (Sum of room areas
-           must equal the footprint area, {W * D:.0f} sq ft.)
-        3. The front door must open into the LIVING room: the living room sits on
-           the south wall (its y_min = {y0:.1f}) and spans across x={dx:.1f},
-           inset ≥ 2 ft from its own side walls.
-        4. The kitchen must share a wall (≥ 2.5 ft) with the living room.
-        5. WET WALL: the kitchen must share a wall (≥ 2.5 ft) with at least one
-           bathroom (shared plumbing).
-        6. Every room must connect to the rest through a wall ≥ 2.5 ft wide
-           (you can physically walk between all rooms).
+        2. Rooms tile the footprint within ~5% (no overlaps, no big gaps).
+        3. The front door opens into the LIVING room: living sits on the south
+           wall (y_min ≈ {y0:.1f}) and spans x={dx:.1f}, inset ≥ 2 ft from its sides.
+        4. Kitchen shares a wall (≥ 2.5 ft) with the living room (open plan).
+        5. A 4-ft-wide CORRIDOR separates the public (south) rooms from the
+           private (north) rooms and connects everything.
+        6. Each bathroom is ENSUITE — it shares a wall (≥ 4 ft) with its own
+           bedroom, and is SMALLER in area than that bedroom.
+        7. A bathroom must NEVER share a wall with the kitchen (sanitation).
+        8. The two bathrooms must NEVER share a wall with each other.
+        9. Bathrooms ≤ 15 ft on every side (no slab-shaped baths).
+        10. Every room connects to the rest through a wall ≥ 2.5 ft wide.
 
-        # A LAYOUT THAT ALWAYS WORKS (recommended structure — pick the cut
-        # positions yourself, but this banding makes tiling trivial)
+        # A LAYOUT THAT ALWAYS WORKS (recommended — pick the cut positions)
         Three horizontal bands, south to north:
-          • PUBLIC band (south, touching the door): LIVING on the west half,
-            KITCHEN on the east half. The living room contains the door.
-          • BATH band (middle): the 2 bathrooms side by side, full width.
-          • BEDROOM band (north): the 3 bedrooms side by side, full width.
-        Each band spans the full {W:.0f} ft width; you choose the band heights
-        (south→north they must sum to {D:.0f} ft) and the vertical split points.
+          • PUBLIC band (south, on the door): LIVING (contains the door) then
+            KITCHEN beside it.
+          • CORRIDOR band: a 4-ft-tall hallway spanning the full width.
+          • PRIVATE band (north, ≈15 ft tall): left→right
+            [ Bath 1 | Bedroom 1 | Bedroom 3 | Bedroom 2 | Bath 2 ].
+            This puts each bath next to only its bedroom, keeps the two baths
+            apart (Bedroom 3 between them), and keeps baths off the kitchen.
+        Bands span the full {W:.0f} ft width; band heights sum to {D:.0f} ft.
 
         # OUTPUT FORMAT — MANDATORY
         Output ONLY a Python script (no markdown fence, no prose).
         The FIRST LINE must be the magic comment with ACTUAL NUMBERS:
 
-            # ROOMS: [("Living","living",{x0:.1f},{y0:.1f},X,Y), ("Kitchen","kitchen",...), ...]
+            # ROOMS: [("Living","living",{x0:.1f},{y0:.1f},X,Y), ("Corridor","corridor",...), ...]
 
         Rules for that line:
         - It is STATIC metadata read by a regex; use literal numbers only (no
           variables, no expressions, no f-strings).
-        - 7 entries, each (name, kind, x_min, y_min, x_max, y_max).
-        - kind ∈ {{"living","kitchen","bathroom","bedroom"}} (lowercase).
+        - 8 entries, each (name, kind, x_min, y_min, x_max, y_max).
+        - kind ∈ {{"living","kitchen","corridor","bathroom","bedroom"}} (lowercase).
         After it, write a short ezdxf script that draws the footprint and each
         room rectangle, then `doc.saveas(os.environ.get("DXF_OUT","output/interior.dxf"))`.
         No other side effects.

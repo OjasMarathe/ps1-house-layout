@@ -7,27 +7,39 @@ a list of `InteriorViolation` records; an empty list means the floor plan is
 legal and well-formed.
 
 Split of labor (same convention as verifier_z3.py):
-  - Scalar/algebraic checks (min area, min side, doorway width) go through Z3
-    via `_violated`, so the SMT solver stays the single source of truth on the
-    numeric comparisons.
-  - Pure geometry (rectangle overlap, exact tiling, adjacency-graph
+  - Scalar/algebraic checks (areas, side lengths, shared-wall lengths) go
+    through Z3 via `_violated`, so the SMT solver stays the single source of
+    truth on the numeric comparisons.
+  - Pure geometry (rectangle overlap, shared-wall length, adjacency-graph
     connectivity) is plain Python — Z3 adds nothing when the rectangles are
     already concrete numbers.
 
-The rule set:
-  R1  room_count        — exactly 3 bedroom + 1 kitchen + 2 bathroom + 1 living
-  R2  room_in_footprint — every room lies inside the verified house footprint
-  R3  room_min_area     — every room meets its program minimum area
-  R4  room_min_side     — no room has a horizontal dimension below its minimum
-  R5  no_overlap        — no two rooms overlap (positive-area intersection)
-  R6  exact_tiling      — rooms cover the footprint with no gaps
-  R7  door_in_living    — the front door opens into the living room (egress)
-  R8  kitchen_by_living — kitchen shares a real wall with the living room
-  R9  wet_wall          — kitchen shares a wall with at least one bathroom
-  R10 connected         — every room is reachable from every other (doorways)
+The constraint set (matches the richer 25-rule reference plus extras):
+
+  SIZE (IRC R304/R305)
+    room_min_area      every room meets its program minimum area
+    room_min_side      no room has a side below its minimum (no slivers)
+    room_max_side      bathrooms capped at 15 ft/side (no absurd 33x5 baths)
+  STRUCTURE
+    room_count         exactly 1 living + 1 kitchen + 1 corridor + 3 bed + 2 bath
+    room_in_footprint  every room lies inside the verified house footprint
+    no_overlap         no two rooms overlap (positive-area intersection)
+    coverage           total room area within +/- 5% of the footprint
+  BATHROOMS
+    ensuite_attached   each bathroom shares a wall with a distinct bedroom
+    bath_smaller       each bathroom is smaller than the bedroom it serves
+    bath_not_adj_kitchen   no bathroom shares a wall with the kitchen (sanitation)
+    baths_not_adjacent the two bathrooms do not share a wall
+  CIRCULATION / SPATIAL
+    living_near_south  living room sits within 2 ft of the south wall
+    door_in_living     the front door opens into the living room (egress)
+    kitchen_by_living  kitchen shares a wall with the living room (open plan)
+    corridor_width     corridor clear width >= 4 ft   (via room_min_side)
+    connected          every room is reachable from every other (doorways)
 """
 
 from dataclasses import dataclass
+import re
 
 from verifier_z3 import _violated, HouseGeometry  # reuse the Z3 scalar judge
 from constraints import SBCConstraints
@@ -41,19 +53,19 @@ EPS = 1e-6
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Room:
-    name: str          # e.g. "Bedroom 1"
-    kind: str          # "bedroom" | "kitchen" | "bathroom" | "living"
+    name: str
+    kind: str          # living | kitchen | corridor | bedroom | bathroom
     x_min: float
     y_min: float
     x_max: float
     y_max: float
 
     @property
-    def width(self) -> float:   # E-W extent
+    def width(self) -> float:
         return self.x_max - self.x_min
 
     @property
-    def depth(self) -> float:   # N-S extent
+    def depth(self) -> float:
         return self.y_max - self.y_min
 
     @property
@@ -63,6 +75,10 @@ class Room:
     @property
     def min_side(self) -> float:
         return min(self.width, self.depth)
+
+    @property
+    def max_side(self) -> float:
+        return max(self.width, self.depth)
 
     @property
     def center(self) -> tuple[float, float]:
@@ -101,23 +117,16 @@ def _overlap_area(a: Room, b: Room) -> float:
 
 
 def _shared_wall(a: Room, b: Room) -> float:
-    """Length of the wall the two rooms share (0 if they only touch at a corner
-    or don't touch at all). Assumes the rooms do not overlap."""
-    # Vertical shared wall: a's east edge == b's west edge (or vice versa)
-    if abs(a.x_max - b.x_min) < EPS or abs(b.x_max - a.x_min) < EPS:
-        lo = max(a.y_min, b.y_min)
-        hi = min(a.y_max, b.y_max)
-        return max(0.0, hi - lo)
-    # Horizontal shared wall: a's north edge == b's south edge (or vice versa)
-    if abs(a.y_max - b.y_min) < EPS or abs(b.y_max - a.y_min) < EPS:
-        lo = max(a.x_min, b.x_min)
-        hi = min(a.x_max, b.x_max)
-        return max(0.0, hi - lo)
+    """Length of wall shared by the two rooms (0 if they only touch at a corner
+    or are apart). Assumes the rooms do not overlap."""
+    if abs(a.x_max - b.x_min) < EPS or abs(b.x_max - a.x_min) < EPS:   # vertical
+        return max(0.0, min(a.y_max, b.y_max) - max(a.y_min, b.y_min))
+    if abs(a.y_max - b.y_min) < EPS or abs(b.y_max - a.y_min) < EPS:   # horizontal
+        return max(0.0, min(a.x_max, b.x_max) - max(a.x_min, b.x_min))
     return 0.0
 
 
 def _connected_components(rooms_list: list[Room], min_wall: float) -> list[set[int]]:
-    """Indices grouped by reachability through walls of length >= min_wall."""
     n = len(rooms_list)
     adj: dict[int, set[int]] = {i: set() for i in range(n)}
     for i in range(n):
@@ -142,17 +151,40 @@ def _connected_components(rooms_list: list[Room], min_wall: float) -> list[set[i
     return comps
 
 
+def _attached_bedroom(bath: Room, bedrooms: list[Room]) -> tuple[Room | None, float]:
+    """Return (bedroom sharing the longest wall with `bath`, that length)."""
+    best, best_len = None, 0.0
+    for bd in bedrooms:
+        w = _shared_wall(bath, bd)
+        if w > best_len:
+            best, best_len = bd, w
+    return best, best_len
+
+
 # --------------------------------------------------------------------------- #
 #  The check
 # --------------------------------------------------------------------------- #
-def check_interior(layout: InteriorLayout, sbc: SBCConstraints) -> list[InteriorViolation]:
-    """Return list of interior violations; empty list == legal floor plan."""
+def check_interior(layout: InteriorLayout, sbc: SBCConstraints,
+                   require_adjacency: bool = True,
+                   coverage_tol_frac: float = program.COVERAGE_TOL_FRAC
+                   ) -> list[InteriorViolation]:
+    """Return list of interior violations; empty list == legal floor plan.
+
+    `require_adjacency` lets a caller verify the geometry-only subset (counts,
+    containment, sizes, non-overlap, coverage) without the wall-adjacency
+    family — useful for partial/diagnostic layouts. `coverage_tol_frac` is the
+    +/- band on total-area-vs-footprint coverage (default 5%)."""
     v: list[InteriorViolation] = []
     rs = list(layout.rooms)
     fx0, fy0, fx1, fy1 = layout.footprint
     door_x, door_y = layout.door
 
-    # --- R1: room counts ----------------------------------------------------
+    bedrooms = [r for r in rs if r.kind == "bedroom"]
+    baths = [r for r in rs if r.kind == "bathroom"]
+    kitchens = [r for r in rs if r.kind == "kitchen"]
+    livings = [r for r in rs if r.kind == "living"]
+
+    # --- counts -------------------------------------------------------------
     counts: dict[str, int] = {}
     for r in rs:
         counts[r.kind] = counts.get(r.kind, 0) + 1
@@ -160,131 +192,154 @@ def check_interior(layout: InteriorLayout, sbc: SBCConstraints) -> list[Interior
         have = counts.get(kind, 0)
         if have != need:
             v.append(InteriorViolation(
-                rule="room_count",
-                measured_ft=float(have), required_ft=float(need),
-                message=(f"Need exactly {need} {kind}(s); layout has {have}. "
-                         f"Program: 3 bedroom + 1 kitchen + 2 bathroom + 1 living.")))
-    unknown = sorted({r.kind for r in rs} - set(program.REQUIRED_COUNT))
-    for k in unknown:
+                "room_count", float(have), float(need),
+                f"Need exactly {need} {kind}(s); layout has {have}. Program: "
+                "1 living + 1 kitchen + 1 corridor + 3 bedrooms + 2 bathrooms."))
+    for k in sorted({r.kind for r in rs} - set(program.REQUIRED_COUNT)):
         v.append(InteriorViolation(
-            rule="room_count", measured_ft=0.0, required_ft=0.0,
-            message=f"Unknown room kind '{k}'. Allowed: bedroom, kitchen, bathroom, living."))
+            "room_count", 0.0, 0.0,
+            f"Unknown room kind '{k}'. Allowed: {sorted(program.REQUIRED_COUNT)}."))
 
-    # --- R2/R3/R4: per-room containment, min area, min side -----------------
+    # --- per-room: containment, min area, min side, max side ----------------
     for r in rs:
-        # containment in footprint (algebra via Z3)
         if (_violated(r.x_min, fx0) or _violated(fx1, r.x_max)
                 or _violated(r.y_min, fy0) or _violated(fy1, r.y_max)):
             v.append(InteriorViolation(
-                rule="room_in_footprint", measured_ft=0.0, required_ft=0.0,
-                message=(f"{r.name} ({r.x_min:.1f},{r.y_min:.1f})-"
-                         f"({r.x_max:.1f},{r.y_max:.1f}) sticks outside the house "
-                         f"footprint x∈[{fx0:.1f},{fx1:.1f}], y∈[{fy0:.1f},{fy1:.1f}].")))
+                "room_in_footprint", 0.0, 0.0,
+                f"{r.name} ({r.x_min:.1f},{r.y_min:.1f})-({r.x_max:.1f},{r.y_max:.1f}) "
+                f"is outside the footprint x∈[{fx0:.1f},{fx1:.1f}], y∈[{fy0:.1f},{fy1:.1f}]."))
         spec = program.SPEC_BY_KIND.get(r.kind)
         if spec is None:
             continue
         if _violated(r.area, spec.min_area_ft2):
             v.append(InteriorViolation(
-                rule="room_min_area",
-                measured_ft=float(r.area), required_ft=float(spec.min_area_ft2),
-                message=(f"{r.name} is {r.area:.0f} sq ft; a {r.kind} needs "
-                         f"≥ {spec.min_area_ft2:.0f} sq ft.")))
+                "room_min_area", float(r.area), float(spec.min_area_ft2),
+                f"{r.name} is {r.area:.0f} sq ft; a {r.kind} needs ≥ "
+                f"{spec.min_area_ft2:.0f} sq ft (IRC R304)."))
         if _violated(r.min_side, spec.min_side_ft):
             v.append(InteriorViolation(
-                rule="room_min_side",
-                measured_ft=float(r.min_side), required_ft=float(spec.min_side_ft),
-                message=(f"{r.name} narrowest side is {r.min_side:.1f} ft; a "
-                         f"{r.kind} needs every side ≥ {spec.min_side_ft:.0f} ft "
-                         "(no slivers).")))
+                "room_min_side", float(r.min_side), float(spec.min_side_ft),
+                f"{r.name} narrowest side is {r.min_side:.1f} ft; a {r.kind} needs "
+                f"every side ≥ {spec.min_side_ft:.0f} ft."))
+        if spec.max_side_ft is not None and _violated(spec.max_side_ft, r.max_side):
+            v.append(InteriorViolation(
+                "room_max_side", float(r.max_side), float(spec.max_side_ft),
+                f"{r.name} longest side is {r.max_side:.1f} ft; a {r.kind} is "
+                f"capped at ≤ {spec.max_side_ft:.0f} ft/side (no slab-shaped rooms)."))
 
-    # --- R5: pairwise non-overlap -------------------------------------------
+    # --- non-overlap --------------------------------------------------------
     for i in range(len(rs)):
         for j in range(i + 1, len(rs)):
             ov = _overlap_area(rs[i], rs[j])
             if ov > EPS:
                 v.append(InteriorViolation(
-                    rule="no_overlap",
-                    measured_ft=float(ov), required_ft=0.0,
-                    message=(f"{rs[i].name} and {rs[j].name} overlap by "
-                             f"{ov:.0f} sq ft. Rooms must be disjoint.")))
+                    "no_overlap", float(ov), 0.0,
+                    f"{rs[i].name} and {rs[j].name} overlap by {ov:.0f} sq ft. "
+                    "Rooms must be disjoint."))
 
-    # --- R6: exact tiling (no gaps) -----------------------------------------
-    # With containment (R2) and non-overlap (R5) holding, the rooms tile the
-    # footprint exactly iff their areas sum to the footprint area.
+    # --- coverage (no big unexplained gaps; total within +/- tol) -----------
     total = sum(r.area for r in rs)
-    fp_area = layout.footprint_area
-    if abs(total - fp_area) > 1.0:  # 1 sq ft slop
-        gap = fp_area - total
-        if gap > 0:
-            msg = (f"Rooms cover {total:.0f} sq ft but the footprint is "
-                   f"{fp_area:.0f} sq ft — {gap:.0f} sq ft of dead/unassigned "
-                   "space. Rooms must tile the whole footprint (no gaps).")
-        else:
-            msg = (f"Rooms cover {total:.0f} sq ft, more than the "
-                   f"{fp_area:.0f} sq ft footprint — they spill out or overlap.")
-        v.append(InteriorViolation(
-            rule="exact_tiling", measured_ft=float(total), required_ft=float(fp_area),
-            message=msg))
+    fp = layout.footprint_area
+    if abs(total - fp) > coverage_tol_frac * fp:
+        gap = fp - total
+        msg = (f"Rooms cover {total:.0f} sq ft vs footprint {fp:.0f} sq ft "
+               f"({'gap' if gap > 0 else 'overflow'} {abs(gap):.0f} sq ft, "
+               f"> {coverage_tol_frac*100:.0f}% tolerance).")
+        v.append(InteriorViolation("coverage", float(total), float(fp), msg))
 
-    # --- R7: front door opens into the living room --------------------------
-    livings = [r for r in rs if r.kind == "living"]
+    # --- bathrooms ----------------------------------------------------------
+    bath_to_bed: dict[str, Room] = {}
+    if require_adjacency:
+        used: set[str] = set()
+        for b in baths:
+            bd, wall = _attached_bedroom(b, bedrooms)
+            if bd is None or _violated(wall, program.ENSUITE_WALL_MIN_FT):
+                v.append(InteriorViolation(
+                    "ensuite_attached", float(wall), float(program.ENSUITE_WALL_MIN_FT),
+                    f"{b.name} is not ensuite — it shares only {wall:.1f} ft of wall "
+                    f"with any bedroom; need ≥ {program.ENSUITE_WALL_MIN_FT:.0f} ft "
+                    "with its own bedroom."))
+            else:
+                bath_to_bed[b.name] = bd
+                if bd.name in used:
+                    v.append(InteriorViolation(
+                        "ensuite_attached", 0.0, 0.0,
+                        f"{b.name} and another bathroom both attach to {bd.name}; "
+                        "each bathroom must serve a different bedroom."))
+                used.add(bd.name)
+
+        # bath area < its bedroom's area
+        for b in baths:
+            bd = bath_to_bed.get(b.name)
+            if bd is not None and _violated(bd.area, b.area + EPS):  # bath.area >= bed.area
+                v.append(InteriorViolation(
+                    "bath_smaller", float(b.area), float(bd.area),
+                    f"{b.name} ({b.area:.0f} sq ft) must be smaller than its "
+                    f"bedroom {bd.name} ({bd.area:.0f} sq ft)."))
+
+        # bathrooms not adjacent to the kitchen (sanitation)
+        for b in baths:
+            for kt in kitchens:
+                wall = _shared_wall(b, kt)
+                if wall > program.ADJ_TOL_FT:
+                    v.append(InteriorViolation(
+                        "bath_not_adj_kitchen", float(wall), 0.0,
+                        f"{b.name} shares a {wall:.1f} ft wall with {kt.name}; a "
+                        "bathroom must never abut the kitchen (sanitation)."))
+
+        # the two bathrooms not adjacent to each other
+        for i in range(len(baths)):
+            for j in range(i + 1, len(baths)):
+                wall = _shared_wall(baths[i], baths[j])
+                if wall > program.ADJ_TOL_FT:
+                    v.append(InteriorViolation(
+                        "baths_not_adjacent", float(wall), 0.0,
+                        f"{baths[i].name} and {baths[j].name} share a {wall:.1f} ft "
+                        "wall; the two bathrooms must not be adjacent."))
+
+    # --- living room: south wall + the front door ---------------------------
     if livings:
         lv = livings[0]
-        on_south = abs(lv.y_min - fy0) < 0.5 and abs(door_y - fy0) < 0.5
+        near_south = abs(lv.y_min - fy0)
+        if near_south > program.SOUTH_TOL_FT:
+            v.append(InteriorViolation(
+                "living_near_south", float(near_south), float(program.SOUTH_TOL_FT),
+                f"{lv.name} south edge is {near_south:.1f} ft from the south wall; "
+                f"must be within {program.SOUTH_TOL_FT:.0f} ft (entry is on the south)."))
         margin = sbc.door_corner_margin_ft
+        on_south = abs(lv.y_min - fy0) < 0.5 and abs(door_y - fy0) < 0.5
         in_span = (lv.x_min + margin - EPS) <= door_x <= (lv.x_max - margin + EPS)
         if not (on_south and in_span):
             v.append(InteriorViolation(
-                rule="door_in_living",
-                measured_ft=float(door_x), required_ft=float(margin),
-                message=(f"Front door ({door_x:.1f},{door_y:.1f}) must open into "
-                         f"the living room on the south wall. {lv.name} spans "
-                         f"x∈[{lv.x_min:.1f},{lv.x_max:.1f}], south edge y="
-                         f"{lv.y_min:.1f}. Place the living room across the door, "
-                         f"inset ≥ {margin:.0f} ft from its side walls.")))
+                "door_in_living", float(door_x), float(margin),
+                f"Front door ({door_x:.1f},{door_y:.1f}) must open into {lv.name} on "
+                f"the south wall (spans x∈[{lv.x_min:.1f},{lv.x_max:.1f}]), inset ≥ "
+                f"{margin:.0f} ft from its side walls."))
 
-    # --- R8: kitchen shares a wall with the living room ---------------------
-    kitchens = [r for r in rs if r.kind == "kitchen"]
-    if kitchens and livings:
-        kt = kitchens[0]
-        wall = max(_shared_wall(kt, lv) for lv in livings)
-        if _violated(wall, program.DOORWAY_FT):
+    # --- kitchen adjoins living (open plan, no corridor between) -------------
+    if require_adjacency and kitchens and livings:
+        wall = max(_shared_wall(kitchens[0], lv) for lv in livings)
+        if _violated(wall, program.WALL_MIN_FT):
             v.append(InteriorViolation(
-                rule="kitchen_by_living",
-                measured_ft=float(wall), required_ft=float(program.DOORWAY_FT),
-                message=(f"Kitchen shares only {wall:.1f} ft of wall with the "
-                         f"living room; need ≥ {program.DOORWAY_FT:.1f} ft "
-                         "(open-plan kitchen/living adjacency).")))
+                "kitchen_by_living", float(wall), float(program.WALL_MIN_FT),
+                f"Kitchen shares only {wall:.1f} ft of wall with the living room; "
+                f"need ≥ {program.WALL_MIN_FT:.1f} ft (kitchen directly adjacent, "
+                "no corridor between)."))
 
-    # --- R9: wet wall — kitchen adjacent to a bathroom ----------------------
-    baths = [r for r in rs if r.kind == "bathroom"]
-    if kitchens and baths:
-        kt = kitchens[0]
-        wall = max(_shared_wall(kt, b) for b in baths)
-        if _violated(wall, program.DOORWAY_FT):
-            v.append(InteriorViolation(
-                rule="wet_wall",
-                measured_ft=float(wall), required_ft=float(program.DOORWAY_FT),
-                message=(f"Kitchen shares only {wall:.1f} ft of wall with any "
-                         f"bathroom; need ≥ {program.DOORWAY_FT:.1f} ft so the "
-                         "plumbing stacks share a wet wall.")))
-
-    # --- R10: connectivity — every room reachable via doorways --------------
-    if len(rs) >= 2:
-        comps = _connected_components(rs, program.DOORWAY_FT)
+    # --- connectivity: every room reachable through a >= doorway wall --------
+    if require_adjacency and len(rs) >= 2:
+        comps = _connected_components(rs, program.WALL_MIN_FT)
         if len(comps) > 1:
             biggest = max(comps, key=len)
             stranded = [rs[i].name for c in comps if c is not biggest for i in c]
             v.append(InteriorViolation(
-                rule="connected",
-                measured_ft=float(len(comps)), required_ft=1.0,
-                message=(f"Floor plan splits into {len(comps)} disconnected "
-                         f"groups; {', '.join(stranded)} cannot be reached "
-                         f"through a ≥ {program.DOORWAY_FT:.1f} ft doorway. "
-                         "Every room must connect to the rest.")))
+                "connected", float(len(comps)), 1.0,
+                f"Floor plan splits into {len(comps)} disconnected groups; "
+                f"{', '.join(stranded)} cannot be reached through a "
+                f"≥ {program.WALL_MIN_FT:.1f} ft doorway. Every room must connect."))
 
     return v
 
 
-def passes_interior(layout: InteriorLayout, sbc: SBCConstraints) -> bool:
-    return len(check_interior(layout, sbc)) == 0
+def passes_interior(layout: InteriorLayout, sbc: SBCConstraints, **kw) -> bool:
+    return len(check_interior(layout, sbc, **kw)) == 0

@@ -1,61 +1,90 @@
-"""The building 'program' — what rooms the interior must contain.
+"""The building 'program' — what the interior must contain and the spatial
+rules it must obey.
 
-The exterior pipeline (plot.py / optimizer_z3.py / verifier_z3.py) produces a
-single SBC-legal house *footprint*. The interior stage then has to subdivide
-that footprint into actual rooms. This file encodes WHICH rooms are required
-and the minimum size each must be, as plain data — exactly the same philosophy
-as constraints.py (cite a defensible source, encode a small subset).
+This is the data layer for the interior stage, in the same spirit as
+constraints.py (cite a defensible source, encode a small subset). It now mirrors
+a fuller residential program: a corridor for circulation and *ensuite*
+bathrooms (each attached to its own bedroom), with IRC-accurate minimums.
 
-Requirement (from the assignment brief): the interior must contain
-    3 bedrooms + 1 kitchen + 2 bathrooms + 1 living room   (7 rooms).
+Program (8 rooms):
+    1 living + 1 kitchen + 1 corridor + 3 bedrooms + 2 bathrooms
+    bathrooms are ensuite: Bath 1 -> Bedroom 1, Bath 2 -> Bedroom 2
+    (Bedroom 3 has no ensuite)
 
-Minimum sizes are loosely modeled on the International Residential Code (IRC):
-  - IRC R304: habitable rooms ≥ 70 sq ft, with no horizontal dimension < 7 ft.
-  - A primary "living" habitable room ≥ 120 sq ft (IRC R304.1 historic value).
-  - Bathrooms / kitchens are non-habitable service spaces with smaller minimums.
-We round these up to comfortable, defensible residential numbers.
+Sizes — International Residential Code (IRC) R304/R305:
+  - Habitable rooms (living, kitchen treated as habitable here, bedrooms):
+    floor area >= 70 sq ft, and no horizontal dimension < 7 ft.
+  - Bathrooms (non-habitable service space): >= 25 sq ft (a 5x5 fixture clear
+    area), each side >= 5 ft, and capped at <= 15 ft per side so the LLM can't
+    emit an absurd 33x5 "bathroom" that technically clears the 5 ft minimum.
+  - Corridor: >= 4 ft clear width (IRC R311.6 hallway minimum is 3 ft; we use 4).
+
+Spatial rules (architectural, from the project meeting feedback):
+  - Living room nearest the south entry, touching the south wall.
+  - Kitchen directly adjacent to the living room (no corridor between).
+  - Each bathroom is ensuite: it shares a wall with its bedroom (private access).
+  - A bathroom must NEVER share a wall with the kitchen (sanitation).
+  - The two bathrooms must NEVER share a wall with each other.
+  - Each bathroom must be smaller in area than the bedroom it serves.
+  - Each bedroom gets 2 windows on different walls (drawn; see dxf/viz).
 """
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
 class RoomSpec:
-    kind: str          # "bedroom" | "kitchen" | "bathroom" | "living"
-    count: int         # how many of this kind are required
+    kind: str               # "living" | "kitchen" | "corridor" | "bedroom" | "bathroom"
+    count: int
     min_area_ft2: float
-    min_side_ft: float  # no horizontal dimension may be smaller than this
-    label: str          # human-friendly display name stem
+    min_side_ft: float      # no horizontal dimension may be smaller than this
+    max_side_ft: Optional[float]  # cap on any side (None = uncapped)
+    habitable: bool         # IRC "habitable space" (affects window requirement)
+    label: str
 
 
-# The required interior program. Order matters only for display.
+# IRC R304 habitable minimum = 70 sq ft, min side 7 ft.
+_HAB = dict(min_area_ft2=70.0, min_side_ft=7.0, max_side_ft=None, habitable=True)
+
 PROGRAM: tuple[RoomSpec, ...] = (
-    RoomSpec(kind="living",   count=1, min_area_ft2=200.0, min_side_ft=12.0, label="Living"),
-    RoomSpec(kind="kitchen",  count=1, min_area_ft2=80.0,  min_side_ft=7.0,  label="Kitchen"),
-    RoomSpec(kind="bathroom", count=2, min_area_ft2=40.0,  min_side_ft=5.0,  label="Bath"),
-    RoomSpec(kind="bedroom",  count=3, min_area_ft2=100.0, min_side_ft=9.0,  label="Bedroom"),
+    RoomSpec(kind="living",   count=1, label="Living",   **_HAB),
+    RoomSpec(kind="kitchen",  count=1, label="Kitchen",  **_HAB),
+    RoomSpec(kind="corridor", count=1, label="Corridor",
+             min_area_ft2=16.0, min_side_ft=4.0, max_side_ft=None, habitable=False),
+    RoomSpec(kind="bedroom",  count=3, label="Bedroom",  **_HAB),
+    RoomSpec(kind="bathroom", count=2, label="Bath",
+             min_area_ft2=25.0, min_side_ft=5.0, max_side_ft=15.0, habitable=False),
 )
 
-# Quick lookups
 SPEC_BY_KIND: dict[str, RoomSpec] = {s.kind: s for s in PROGRAM}
 REQUIRED_COUNT: dict[str, int] = {s.kind: s.count for s in PROGRAM}
-TOTAL_ROOMS: int = sum(s.count for s in PROGRAM)  # 7
-
-# Minimum floor area the program needs (a feasibility lower bound). The
-# exterior footprint is ~3,770 sq ft, far above this, so a legal interior
-# always exists — the interior loop is about a *good* partition, not a
-# feasibility miracle.
+TOTAL_ROOMS: int = sum(s.count for s in PROGRAM)        # 8
+HABITABLE_KINDS: set[str] = {s.kind for s in PROGRAM if s.habitable}
 MIN_TOTAL_AREA: float = sum(s.min_area_ft2 * s.count for s in PROGRAM)
 
-# A doorway/shared-wall must be at least this long for two rooms to count as
-# "connected" (you can't walk through a 6-inch gap). Used by adjacency rules.
-DOORWAY_FT: float = 2.5
+# --- spatial-rule parameters ----------------------------------------------- #
+CORRIDOR_WIDTH_FT: float = 4.0      # IRC R311.6 hallway clear width (we use 4)
+WALL_MIN_FT: float = 2.5            # min shared-wall length to count as a doorway
+ENSUITE_WALL_MIN_FT: float = 4.0    # a bathroom door+ onto its bedroom
+ADJ_TOL_FT: float = 0.5            # shared wall <= this is treated as "not touching"
+SOUTH_TOL_FT: float = 2.0          # living-room south edge within this of house south
+COVERAGE_TOL_FRAC: float = 0.05    # rooms total within +/- 5% of house area
+WINDOWS_PER_BEDROOM: int = 2       # on different walls, <=1 per wall
+
+# Public zone (south of the corridor) vs private zone (north of the corridor).
+SOUTH_ZONE_KINDS: set[str] = {"living", "kitchen"}
+NORTH_ZONE_KINDS: set[str] = {"bedroom", "bathroom"}
 
 
 if __name__ == "__main__":
-    print("Interior program:")
+    print("Interior program (IRC R304/R305):")
     for s in PROGRAM:
-        print(f"  {s.count}× {s.kind:9s} — min {s.min_area_ft2:.0f} sq ft, "
-              f"min side {s.min_side_ft:.0f} ft")
-    print(f"  total rooms      : {TOTAL_ROOMS}")
-    print(f"  min total area   : {MIN_TOTAL_AREA:.0f} sq ft")
+        cap = f", max side {s.max_side_ft:.0f} ft" if s.max_side_ft else ""
+        print(f"  {s.count}x {s.kind:9s} — >= {s.min_area_ft2:.0f} sq ft, "
+              f"side >= {s.min_side_ft:.0f} ft{cap}"
+              f"{'  [habitable]' if s.habitable else ''}")
+    print(f"  total rooms    : {TOTAL_ROOMS}")
+    print(f"  min total area : {MIN_TOTAL_AREA:.0f} sq ft")
+    print(f"  corridor width : >= {CORRIDOR_WIDTH_FT:.0f} ft")
+    print("  ensuite        : Bath 1->Bedroom 1, Bath 2->Bedroom 2 (Bedroom 3 none)")

@@ -4,13 +4,15 @@
 
 Phase 1 reuses the existing exterior pipeline (Z3 Optimize target ➜ A1 Gemini
 ➜ parser ➜ Z3 verifier ➜ A2 Groq) to converge on an SBC-legal house footprint.
-Phase 2 then subdivides that footprint into the required 7-room program using
-the SAME loop shape on the interior modules, with a Z3-synthesized reference
-layout as a guaranteed fallback. The run always ends with a complete,
-Z3-verified .dxf of plot + tree + house + rooms.
+Phase 2 subdivides that footprint into the 8-room program (living, kitchen,
+corridor, 3 bedrooms, 2 ensuite bathrooms) with a MILP / cutting-plane solver
+(PuLP + CBC) — generate-and-guarantee — and the same Z3 judge confirms the
+full interior constraint set. Set INTERIOR_MODE=llm to instead run the Gemini
+verify-and-fix loop with the MILP layout as the guaranteed fallback. The run
+always ends with a complete, Z3-verified .dxf of plot + tree + house + rooms.
 
 Env (.env): GEMINI_API_KEY, GROQ_API_KEY,
-            optional GEMINI_MODEL, GROQ_MODEL, MAX_ITERATIONS, DXF_OUT
+            optional GEMINI_MODEL, GROQ_MODEL, MAX_ITERATIONS, INTERIOR_MODE
 Neither A1 script is ever executed — geometry comes from the magic comments,
 and the .dxf is rendered deterministically from the verified numbers.
 """
@@ -37,7 +39,7 @@ import agent1_interior_gemini
 import agent2_interior_groq
 import interior_parser
 import interior_verifier_z3
-import interior_synth_z3
+import interior_milp
 from interior_verifier_z3 import InteriorLayout
 
 import dxf_full
@@ -122,8 +124,8 @@ def run_interior(footprint, door, reference: InteriorLayout) -> InteriorLayout:
         feedback = agent2_interior_groq.explain_interior(violations, it)
         _save(f"int_iter_{it:02d}_a2.txt", feedback)
 
-    print("⚠️  [interior] A1 did not converge — using the Z3-synthesized "
-          "reference layout.\n")
+    print("⚠️  [interior] A1 did not converge — using the MILP-generated "
+          "(CBC) layout.\n")
     return reference
 
 
@@ -147,15 +149,30 @@ def main() -> int:
     print(f"   footprint: {fx1-fx0:.0f} × {fy1-fy0:.0f} ft = {area:.0f} sq ft "
           f"({area/max_area*100:.1f}% of Z3 max), door {house.door}\n")
 
-    print("===== PHASE 2 — INTERIOR =====")
-    print("== Z3 synthesize: proving a legal 7-room tiling exists ==")
+    print("===== PHASE 2 — INTERIOR (MILP / cutting-plane) =====")
+    print("== CBC: generating a guaranteed-valid 8-room floor plan ==")
     try:
-        reference = interior_synth_z3.synthesize(footprint, house.door, SBC)
-        print(f"   Z3 reference layout certified ({len(reference.rooms)} rooms).\n")
+        milp = interior_milp.solve_layout(footprint, house.door, SBC)
     except RuntimeError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 2
-    interior = run_interior(footprint, house.door, reference)
+    reference = milp.layout
+    residual = interior_verifier_z3.check_interior(reference, SBC)
+    if residual:
+        print("❌ MILP layout failed Z3 verification:", file=sys.stderr)
+        for v in residual:
+            print(f"     - {v.rule}: {v.message}", file=sys.stderr)
+        return 2
+    print(f"   CBC {milp.status}: {len(reference.rooms)} rooms, "
+          f"{milp.fill_frac*100:.0f}% fill — Z3-verified (0 violations).\n")
+
+    # Default: trust the MILP (generate-and-guarantee). Set INTERIOR_MODE=llm to
+    # instead run the Gemini verify-and-fix loop, falling back to the MILP layout.
+    mode = os.environ.get("INTERIOR_MODE", "milp").lower()
+    if mode == "llm":
+        interior = run_interior(footprint, house.door, reference)
+    else:
+        interior = reference
 
     # Final combined artifact.
     dxf_path = OUTPUT_DIR / "final_full_layout.dxf"

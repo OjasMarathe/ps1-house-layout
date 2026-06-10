@@ -15,9 +15,6 @@ from interior_verifier_z3 import InteriorViolation
 
 MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-# 10 interior rules — see interior_verifier_z3 docstring.
-TOTAL_RULES = 10
-
 
 def _format(violations: list[InteriorViolation]) -> str:
     return "\n".join(
@@ -28,8 +25,8 @@ def _format(violations: list[InteriorViolation]) -> str:
 
 def _header(violations: list[InteriorViolation]) -> str:
     missed = {v.rule for v in violations}
-    return (f"Out of {TOTAL_RULES} interior rules, you missed "
-            f"{len(missed)} — fix and regenerate.")
+    return (f"Z3 rejected the floor plan: {len(missed)} interior rule(s) failed "
+            "— fix and regenerate.")
 
 
 def explain_interior(violations: list[InteriorViolation], iteration: int) -> str:
