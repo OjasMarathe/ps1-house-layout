@@ -7,10 +7,13 @@ house passes cleanly. Run:  python smoketest_verifier.py
 from plot import PLOT
 from constraints import SBC
 from verifier_z3 import HouseGeometry, check
+from optimizer_z3 import compute_max_area
+
+MAX_AREA, _ = compute_max_area(PLOT, SBC)
 
 
 def case(name: str, house: HouseGeometry, expect_rules: set[str]) -> bool:
-    vs = check(house, PLOT, SBC)
+    vs = check(house, PLOT, SBC, max_legal_area=MAX_AREA)
     got = {v.rule for v in vs}
     ok = got == expect_rules
     print(f"  {'PASS' if ok else 'FAIL'}  {name}")
@@ -27,14 +30,23 @@ def main() -> int:
     passes = 0
     total = 0
 
-    # Plot bbox is x [0,80], y [0,88]. Main body x [0,80], y [8,84].
-    # Known-good: house in main body, well clear of all edges and the tree.
-    # x in [10, 50], y in [25, 70]; door at south wall midpoint.
+    # Plot bbox is x [0,80], y [0,88]. Main body x [0,80], y [8,84]. Lot area
+    # 6420 sq ft, so the 35% lot-coverage cap = 2247 sq ft and the 90%
+    # utilization floor = 2022 sq ft. Known-good: 52 x 42 = 2184 sits between.
     good = HouseGeometry(
-        corners=((10, 25), (50, 25), (50, 70), (10, 70)),
-        door=(40, 25),  # within entry segment [35, 75]
+        corners=((12, 20), (64, 20), (64, 62), (12, 62)),
+        door=(45, 20),  # south wall, within entry segment [35, 75]
     )
     total += 1; passes += case("known-good house", good, set())
+
+    # Small-but-SBC-legal house: passes setbacks, FAILS area-coverage rule.
+    # 40 x 45 = 1800 sq ft < 0.9 * 2247 = 2022 (and under the 2247 cap).
+    small_legal = HouseGeometry(
+        corners=((10, 25), (50, 25), (50, 70), (10, 70)),
+        door=(40, 25),
+    )
+    total += 1; passes += case("small but SBC-legal (fails area)", small_legal,
+                               {"min_area_coverage"})
 
     # Tree-buffer violation: push NE corner up into the notch zone.
     # Tree at (77.5, 86), trunk 1 + buffer 3 = 4 ft min distance.
@@ -53,7 +65,7 @@ def main() -> int:
     # corner_inside_plot[i] that fires.
     passes += case("near tree (multi-violation)", near_tree,
                    {"rear_setback_north", "side_setback_east", "tree_buffer",
-                    "corner_inside_plot[3]"})
+                    "corner_inside_plot[3]", "max_lot_coverage"})
 
     # Door on wrong wall (north instead of south)
     door_wrong = HouseGeometry(
@@ -61,7 +73,9 @@ def main() -> int:
         door=(40, 70),
     )
     total += 1
-    passes += case("door on wrong wall", door_wrong, {"door_on_south_wall"})
+    # This house is also small (40x45=1800), so area-coverage fires too.
+    passes += case("door on wrong wall", door_wrong,
+                   {"door_on_south_wall", "min_area_coverage"})
 
     # House too small in both dimensions
     tiny = HouseGeometry(
@@ -69,19 +83,20 @@ def main() -> int:
         door=(27, 25),
     )
     total += 1
-    # The tiny house's door at x=27 is also outside the entry segment [35,75].
+    # Tiny house also fails area-coverage.
     passes += case("house too small", tiny,
                    {"min_width_ew", "min_depth_ns",
-                    "door_within_entry_segment"})
+                    "door_within_entry_segment", "min_area_coverage"})
 
     # Door outside entry segment (x=20 is in main body but outside [35, 75])
+    # This house also fails area-coverage (40x45=1800 < 3654).
     door_outside = HouseGeometry(
         corners=((10, 25), (50, 25), (50, 70), (10, 70)),
         door=(20, 25),
     )
     total += 1
     passes += case("door outside entry segment", door_outside,
-                   {"door_within_entry_segment"})
+                   {"door_within_entry_segment", "min_area_coverage"})
 
     print(f"\n{passes}/{total} cases passed")
     return 0 if passes == total else 1

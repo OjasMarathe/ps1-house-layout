@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000" font-family="Helvetica,Arial,sans-serif">
+<rect width="1500" height="1000" fill="#FFFFFF"/>
+<rect x="12" y="12" width="1476" height="976" fill="none" stroke="#1A1D29" stroke-width="2.5"/>
+<rect x="20" y="20" width="1460" height="960" fill="none" stroke="#1A1D29" stroke-width="0.7"/>
+<defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#1F6FEB" stroke-width="1.6"/></marker></defs>
+<text x="410" y="70" font-size="26" font-weight="bold" fill="#1A1D29">ROOF LAYOUT</text>
+<text x="410" y="94" font-size="13" fill="#6A7186">SCALE: 1/4" = 1'-0"</text>
+<polygon points="413.5,910.0 1176.5,910.0 1176.5,130.0 413.5,130.0" fill="none" stroke="#1A1D29" stroke-width="1.3" stroke-dasharray="8,5"/>
+<text x="795" y="126" font-size="9" fill="#6A7186" text-anchor="middle">1.5 ft O.H.</text>
+<polygon points="438.9,884.6 1151.1,884.6 1151.1,155.4 438.9,155.4" fill="#EAF1F6" stroke="#1A1D29" stroke-width="2"/>
+<line x1="795.0" y1="884.6" x2="795.0" y2="155.4" stroke="#C0392B" stroke-width="3"/>
+<text x="795" y="516" font-size="9" fill="#C0392B" text-anchor="middle" font-weight="bold">RIDGE</text>
+<line x1="617.0" y1="520.0" x2="503.0" y2="520.0" stroke="#1F6FEB" stroke-width="2.0"/><line x1="503.0" y1="520.0" x2="511.1" y2="516.1" stroke="#1F6FEB" stroke-width="2.0"/><line x1="503.0" y1="520.0" x2="511.1" y2="523.9" stroke="#1F6FEB" stroke-width="2.0"/>
+<text x="617" y="533" font-size="9" fill="#1F6FEB" text-anchor="middle">5"/12"</text>
+<line x1="973.0" y1="520.0" x2="1087.0" y2="520.0" stroke="#1F6FEB" stroke-width="2.0"/><line x1="1087.0" y1="520.0" x2="1078.9" y2="523.9" stroke="#1F6FEB" stroke-width="2.0"/><line x1="1087.0" y1="520.0" x2="1078.9" y2="516.1" stroke="#1F6FEB" stroke-width="2.0"/>
+<text x="973" y="533" font-size="9" fill="#1F6FEB" text-anchor="middle">5"/12"</text>
+<rect x="591.6" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="627.8" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="664.1" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="700.4" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="736.6" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="772.9" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="809.1" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="845.4" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="881.6" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="917.9" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="954.2" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<rect x="990.4" y="428.5" width="8" height="8" fill="#FFFFFF" stroke="#1A1D29" stroke-width="1.3"/>
+<text x="795" y="449" font-size="8.5" fill="#1A1D29" text-anchor="middle">13 x 7"x7" roof jacks</text>
+<text x="443" y="170" font-size="10" fill="#1A1D29" font-weight="bold">MAIN - GABLE</text>
+<rect x="30" y="130" width="360" height="150" fill="none" stroke="#1A1D29" stroke-width="1"/>
+<rect x="30" y="130" width="360" height="22" fill="#1A1D29"/>
+<text x="40" y="146" font-size="12" fill="#FFFFFF" font-weight="bold">ROOF VENTILATION - MAIN</text>
+<text x="40" y="170" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">Roof area: 1956.5 s.f.   (IRC R806.2)</text>
+<text x="40" y="185" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">Required NFA = area x 144 / 300 = 939.1 s.i.</text>
+<text x="40" y="200" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">  eave (intake):  469.6 s.i.</text>
+<text x="40" y="215" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">  upper (exhaust): 469.6 s.i.</text>
+<text x="40" y="230" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">Provide: 170.0 l.f. birdblocking (eave)</text>
+<text x="40" y="245" font-size="10" fill="#1A1D29" font-family="Consolas,monospace">Provide: 13 x 7"x7" roof jacks (upper)</text>
+<text x="40" y="260" font-size="10" fill="1AA06D" font-family="Consolas,monospace">Provided = 1077.8 s.i.   >= required  OK</text>
+<rect x="30" y="304" width="360" height="120" fill="none" stroke="#1A1D29" stroke-width="1"/>
+<text x="40" y="322" font-size="11" font-weight="bold" fill="#1A1D29">LEGEND</text>
+<line x1="46" y1="340" x2="76" y2="340" stroke="#C0392B" stroke-width="2.5" />
+<text x="84" y="344" font-size="10" fill="#1A1D29">RIDGE</text>
+<line x1="46" y1="358" x2="76" y2="358" stroke="#1C7293" stroke-width="2.5" stroke-dasharray="5,4"/>
+<text x="84" y="362" font-size="10" fill="#1A1D29">HIP</text>
+<line x1="46" y1="376" x2="76" y2="376" stroke="#6A7186" stroke-width="2.5" stroke-dasharray="5,4"/>
+<text x="84" y="380" font-size="10" fill="#1A1D29">EAVE / O.H. line</text>
+<line x1="46.0" y1="394.0" x2="76.0" y2="394.0" stroke="#1F6FEB" stroke-width="1.8"/><line x1="76.0" y1="394.0" x2="67.9" y2="397.9" stroke="#1F6FEB" stroke-width="1.8"/><line x1="76.0" y1="394.0" x2="67.9" y2="390.1" stroke="#1F6FEB" stroke-width="1.8"/>
+<text x="84" y="398" font-size="10" fill="#1A1D29">slope + pitch (rise/12)</text>
+<rect x="46" y="404" width="8" height="8" fill="#FCE9A6" stroke="#E0922F"/>
+<text x="60" y="412" font-size="10" fill="#1A1D29">SKYLIGHT   </text>
+<rect x="160" y="404" width="8" height="8" fill="none" stroke="#1A1D29"/>
+<text x="174" y="412" font-size="10" fill="#1A1D29">7"x7" roof jack</text>
+<line x1="70.0" y1="952.0" x2="70.0" y2="908.0" stroke="#1A1D29" stroke-width="2.2"/><line x1="70.0" y1="908.0" x2="73.9" y2="916.1" stroke="#1A1D29" stroke-width="2.2"/><line x1="70.0" y1="908.0" x2="66.1" y2="916.1" stroke="#1A1D29" stroke-width="2.2"/>
+<text x="70" y="902" font-size="12" fill="#1A1D29" text-anchor="middle" font-weight="bold">N</text>
+<rect x="1250" y="20" width="230" height="960" fill="none" stroke="#1A1D29" stroke-width="1"/>
+<text x="1264" y="60" font-size="9" fill="#6A7186">PROJECT</text>
+<text x="1264" y="76" font-size="11" fill="#1A1D29" font-weight="bold">GENERATED RESIDENCE</text>
+<line x1="1250" y1="86" x2="1480" y2="86" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="100" font-size="9" fill="#6A7186">SHEET TITLE</text>
+<text x="1264" y="116" font-size="11" fill="#1A1D29" font-weight="bold">ROOF LAYOUT</text>
+<line x1="1250" y1="126" x2="1480" y2="126" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="140" font-size="9" fill="#6A7186">SHEET NO.</text>
+<text x="1264" y="156" font-size="11" fill="#1A1D29" font-weight="bold">R-1</text>
+<line x1="1250" y1="166" x2="1480" y2="166" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="180" font-size="9" fill="#6A7186">SCALE</text>
+<text x="1264" y="196" font-size="11" fill="#1A1D29" font-weight="bold">1/4" = 1'-0"</text>
+<line x1="1250" y1="206" x2="1480" y2="206" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="220" font-size="9" fill="#6A7186">GENERATED BY</text>
+<text x="1264" y="236" font-size="11" fill="#1A1D29" font-weight="bold">Roof Plan Agent</text>
+<line x1="1250" y1="246" x2="1480" y2="246" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="260" font-size="9" fill="#6A7186">ROOF TYPES</text>
+<text x="1264" y="276" font-size="11" fill="#1A1D29" font-weight="bold">gable</text>
+<line x1="1250" y1="286" x2="1480" y2="286" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="300" font-size="9" fill="#6A7186">TOTAL AREA</text>
+<text x="1264" y="316" font-size="11" fill="#1A1D29" font-weight="bold">1956.5 s.f.</text>
+<line x1="1250" y1="326" x2="1480" y2="326" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="340" font-size="9" fill="#6A7186">ROOF JACKS</text>
+<text x="1264" y="356" font-size="11" fill="#1A1D29" font-weight="bold">13</text>
+<line x1="1250" y1="366" x2="1480" y2="366" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="380" font-size="9" fill="#6A7186">EAVE VENT</text>
+<text x="1264" y="396" font-size="11" fill="#1A1D29" font-weight="bold">170.0 l.f.</text>
+<line x1="1250" y1="406" x2="1480" y2="406" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="420" font-size="9" fill="#6A7186">SKYLIGHTS</text>
+<text x="1264" y="436" font-size="11" fill="#1A1D29" font-weight="bold">0</text>
+<line x1="1250" y1="446" x2="1480" y2="446" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="460" font-size="9" fill="#6A7186">ATTIC ACCESS</text>
+<text x="1264" y="476" font-size="11" fill="#1A1D29" font-weight="bold">22"x30" min</text>
+<line x1="1250" y1="486" x2="1480" y2="486" stroke="#DDE1EB" stroke-width="0.6"/>
+<text x="1264" y="500" font-size="9" fill="#6A7186">VERIFIED</text>
+<text x="1264" y="516" font-size="11" fill="#1A1D29" font-weight="bold">YES</text>
+<line x1="1250" y1="526" x2="1480" y2="526" stroke="#DDE1EB" stroke-width="0.6"/>
+</svg>

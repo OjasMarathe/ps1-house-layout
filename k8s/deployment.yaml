@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: house-pipeline
+  namespace: house-pipeline
+spec:
+  # Each pod runs ONE Z3 solver, serialized (Z3 is not thread-safe). So we scale
+  # throughput by running MORE PODS — not more threads. The HPA does this for us.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: house-pipeline
+  template:
+    metadata:
+      labels:
+        app: house-pipeline
+    spec:
+      containers:
+        - name: house-pipeline
+          # Pushed to Google Artifact Registry (asia-south1):
+          image: asia-south1-docker.pkg.dev/project-d05163ee-22e5-4214-9ab/house-pipeline/house-pipeline:v4
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: house-pipeline-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          readinessProbe:        # don't send traffic until the app answers /health
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:         # restart the pod if it wedges (or segfaults)
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10

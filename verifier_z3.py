@@ -31,14 +31,23 @@ class Violation:
     message: str
 
 
-def _violated(measured: float, required: float) -> bool:
-    """True iff `measured < required` according to Z3. Demonstrates SMT use even
-    though the inputs are concrete — keeps the algebra in one place if we later
-    swap concrete numbers for symbolic ones (e.g. to *synthesize* a house)."""
+# Floating-point tolerance (feet). A constraint "measured >= required" is only
+# flagged as violated when `measured` is below `required` by MORE than this slack,
+# so near-exact matches (e.g. 19.9999998 vs 20) are not false failures. Override
+# process-wide by setting verifier_z3.FLOAT_TOL (e.g. from a city-code config).
+FLOAT_TOL = 1e-6
+
+
+def _violated(measured: float, required: float, tol: float | None = None) -> bool:
+    """True iff `measured < required - tol`, decided by Z3 (a deterministic
+    proof, never a probabilistic guess). The tolerance avoids false-negative
+    failures on near-exact equality. Keeping the algebra in Z3 also lets us
+    swap concrete numbers for symbolic ones later (e.g. to *synthesize*)."""
+    t = FLOAT_TOL if tol is None else tol
     s = Solver()
     x = Real("x")
     s.add(x == RealVal(measured))
-    s.add(x < RealVal(required))
+    s.add(x < RealVal(required) - RealVal(t))
     return s.check() == sat
 
 
@@ -57,8 +66,13 @@ def _point_in_polygon(p: tuple[float, float], poly: tuple[tuple[float, float], .
     return inside
 
 
-def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> list[Violation]:
-    """Returns list of SBC violations. Empty list = all rules satisfied."""
+def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints,
+          max_legal_area: float | None = None) -> list[Violation]:
+    """Returns list of SBC violations. Empty list = all rules satisfied.
+
+    `max_legal_area`: theoretical maximum house area for this (plot, sbc)
+    pair, computed by `optimizer_z3.compute_max_area`. If provided, we enforce
+    `house_area >= sbc.min_area_fraction_of_max * max_legal_area`."""
     violations: list[Violation] = []
 
     xs = [c[0] for c in house.corners]
@@ -140,6 +154,38 @@ def check(house: HouseGeometry, plot: Plot, sbc: SBCConstraints) -> list[Violati
                 measured_ft=0.0, required_ft=0.0,
                 message=(f"House corner {corner} lies outside the L-shaped "
                          "plot boundary. Pull the house in.")))
+
+    # --- Max lot coverage (zoning cap: footprint ≤ fraction of lot area) ----
+    footprint_area = (x_max - x_min) * (y_max - y_min)
+    lot_cap = sbc.max_lot_coverage_fraction * plot.area
+    # Area tolerance: a length rounded to 0.01 ft shifts a ~50 ft wall's area by
+    # ~0.5 sq ft (area = length², so length slack is amplified). Use a 1 sq ft
+    # floor + 0.1% so a footprint sitting exactly on the cap isn't false-failed.
+    if _violated(lot_cap, footprint_area, tol=max(1.0, 1e-3 * lot_cap)):  # area > cap
+        violations.append(Violation(
+            rule="max_lot_coverage",
+            measured_ft=float(footprint_area), required_ft=float(lot_cap),
+            message=(f"Footprint {footprint_area:.0f} sq ft is "
+                     f"{footprint_area/plot.area*100:.1f}% of the {plot.area:.0f} sq ft "
+                     f"lot; zoning caps coverage at "
+                     f"{sbc.max_lot_coverage_fraction*100:.0f}% (≤ {lot_cap:.0f} sq ft). "
+                     "Shrink the footprint.")))
+
+    # --- Area coverage (brief: "maximize area") ----------------------------
+    if max_legal_area is not None:
+        area = (x_max - x_min) * (y_max - y_min)
+        required = sbc.min_area_fraction_of_max * max_legal_area
+        if _violated(area, required):
+            violations.append(Violation(
+                rule="min_area_coverage",
+                measured_ft=float(area), required_ft=float(required),
+                message=(f"House footprint is {area:.0f} sq ft "
+                         f"({area/max_legal_area*100:.1f}% of the Z3-computed "
+                         f"max {max_legal_area:.0f} sq ft). Brief requires "
+                         f"maximum area coverage — need ≥ {required:.0f} sq ft "
+                         f"({sbc.min_area_fraction_of_max*100:.0f}% of max). "
+                         "Expand the footprint by tightening any setback that "
+                         "has slack.")))
 
     return violations
 

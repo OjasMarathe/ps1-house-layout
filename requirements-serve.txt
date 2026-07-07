@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+z3-solver
+boto3
+ezdxf

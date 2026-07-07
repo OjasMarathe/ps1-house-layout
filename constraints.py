@@ -25,8 +25,15 @@ class SBCConstraints:
     min_house_depth_ft:  float = 20.0
     # Door must lie on the entry edge, inset by at least this from corners
     door_corner_margin_ft: float = 2.0
-    # We maximize footprint; report area in the violation feedback too
-    encourage_max_area: bool = True
+    # Maximum area utilization — house area must reach this fraction of the
+    # Z3-computed theoretical maximum. This is how the brief's "maximize area
+    # coverage" requirement becomes a verifiable hard constraint instead of
+    # just a prompt suggestion.
+    min_area_fraction_of_max: float = 0.90
+    # Maximum LOT coverage — the footprint may not exceed this fraction of the
+    # total lot area (a zoning ceiling; distinct from the min-utilization floor
+    # above). Confirmed value for Seattle Downtown NR = 0.35.
+    max_lot_coverage_fraction: float = 0.35
 
 
 SBC = SBCConstraints()

@@ -12,37 +12,43 @@ designs a house outline (outer periphery + door) respecting Seattle Building
 Code (SBC) setbacks, tree protection, and fire-egress rules, and emits a
 verified `.dxf` engineering drawing.
 
-## 2. Design principle: **Z3 is the judge, the LLM is the explainer**
+## 2. Design principle: A2 internally splits "judge" from "explain"
 
-The most common failure mode of "verifier" LLMs is they narrate verification
-instead of doing it — agreeable, untraceable, non-reproducible. We avoid that:
+The brief defines **A2 = Verifier** as a single box that uses Z3. We refine
+that one box into two cooperating components inside A2, because the most
+common failure of LLM-as-verifier is *narrating* verification instead of
+doing it (agreeable, untraceable, non-reproducible):
 
 ```
-  ┌──────────────┐   code      ┌──────────────┐   geometry    ┌──────────────┐
-  │  A1: Gemini  │ ──────────► │  Parser      │ ─────────────►│  Z3 verifier │
-  │  (generator) │             │  (regex)     │               │  (judge)     │
-  └──────────────┘             └──────────────┘               └──────┬───────┘
-        ▲                                                            │
-        │                                                            │ violations
-        │  natural-language feedback         ┌──────────────────┐    │
-        └──────────────────────────────────  │   A2: Kimi K2    │ ◄──┘
-                                             │   (explainer)    │
-                                             └──────────────────┘
+                     ┌──────────────────── Agent 2 (Verifier) ─────────────────┐
+  ┌──────────────┐   │  ┌────────────┐  geometry   ┌─────────────┐ violations  │
+  │  A1: Gemini  │ ─►│  │  Parser    │ ──────────► │   Z3        │ ──────────► │
+  │  (generator) │   │  │  (regex)   │             │  (judge)    │             │
+  └──────────────┘   │  └────────────┘             └─────────────┘     │       │
+        ▲            │                                                 ▼       │
+        │            │                            ┌──────────────────────────┐ │
+        │            │                            │  Kimi K2 (explainer)     │ │
+        │            │                            │  "Out of 8 constraints,  │ │
+        │            │                            │   you missed N — ..."    │ │
+        │            │                            └──────────────────────────┘ │
+        └────────────┴─────────── feedback ────────────────────────────────────┘
 ```
 
-- **A1 (Gemini)** generates `ezdxf` Python that draws the house. Output starts
-  with two structured comment lines containing the chosen corners and door —
-  static metadata, *not* `print()` output.
-- **Geometry parser** regex-extracts those numbers without executing untrusted
-  LLM code.
-- **Z3** is the only thing whose `sat`/`unsat` decides whether the design
-  passes. Every SBC rule is a Z3 expression with measured-vs-required values.
-- **A2 (Kimi K2 on Groq)** takes Z3's violation list and rewrites it as
-  actionable feedback ("shift the south wall north by 3 ft"), which goes back
-  to A1 for the next iteration.
+- **A1 (Gemini)** generates `ezdxf` Python. Output starts with two magic
+  comment lines (`# HOUSE_CORNERS:`, `# DOOR:`) — static metadata, *not*
+  `print()` output.
+- **A2 — parser** (deterministic regex): pulls out corners + door without
+  executing untrusted LLM code.
+- **A2 — Z3** (deterministic SMT): is the only thing whose `sat`/`unsat`
+  decides whether the design passes. Every SBC rule is a Z3 expression with
+  measured-vs-required values.
+- **A2 — Kimi K2 on Groq** (LLM): takes Z3's violation list and writes the
+  feedback message to A1 in the format the brief asks for ("Out of N
+  constraints, you missed X — fix and regenerate."), with concrete
+  suggestions ("shift the south wall north by 3 ft").
 
-The LLMs disagree → the Z3 model is rebuilt each iteration → loop terminates
-when Z3 returns the empty violation set.
+The LLM never gets to *decide* — only to *write*. The loop terminates when
+Z3 returns the empty violation set.
 
 ## 3. Plot geometry (sketch v2, closes exactly)
 
@@ -124,7 +130,25 @@ ps1-house-layout/
    pass — declare corners as `Real` variables, add all constraints, solve for
    maximum area. Compares the LLM's design to the SMT-optimal one.
 
-## 8. Prompt-engineering note (Anupam's tip applied)
+## 8. Why we skipped the manual first attempt (§4.6 of the brief)
+
+The brief suggests warming up with manual ChatGPT↔Claude/Gemini iteration to
+build intuition. We jumped straight to automation because:
+
+1. We already have a clear mental model of the agentic loop (Gen → Verify →
+   Feedback) — manual iteration's main value is teaching that loop, and we
+   already understand it.
+2. With Z3 as the deterministic judge, *manual* iteration doesn't actually
+   verify anything beyond what one chatty LLM tells another. The loop's
+   real value only shows up once Z3 is wired in.
+3. The brief's deadline (Sun 3 pm) leaves more value in two automated runs
+   than in three manual paste-cycles.
+
+We can demo a one-iteration manual paste-through during the talk if needed —
+the prompts are already in `agent1_gemini.py` and `agent2_groq.py` and can
+be lifted verbatim into a chat window.
+
+## 9. Prompt-engineering note (Anupam's tip applied)
 
 A1's iteration-N prompt explicitly rebuilds state rather than letting the
 model carry over its own (often wrong) assumptions:

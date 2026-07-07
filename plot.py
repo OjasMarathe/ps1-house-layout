@@ -29,6 +29,17 @@ class Plot:
         ys = [p[1] for p in self.boundary]
         return (min(xs), min(ys), max(xs), max(ys))
 
+    @property
+    def area(self) -> float:
+        """Lot area (shoelace formula) — used for the max lot-coverage cap."""
+        pts = self.boundary
+        s = 0.0
+        for i in range(len(pts)):
+            x1, y1 = pts[i]
+            x2, y2 = pts[(i + 1) % len(pts)]
+            s += x1 * y2 - x2 * y1
+        return abs(s) / 2.0
+
 
 PLOT = Plot(
     boundary=(

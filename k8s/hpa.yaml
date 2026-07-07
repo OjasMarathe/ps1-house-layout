@@ -1,0 +1,22 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: house-pipeline
+  namespace: house-pipeline
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: house-pipeline
+  # When average CPU across pods passes 70%, add pods (up to 8); remove them
+  # when load drops. This is the answer to "spin up more containers so querying
+  # doesn't bottleneck." Requires metrics-server installed on the cluster.
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
