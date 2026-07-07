@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: house-pipeline
+  namespace: house-pipeline
+spec:
+  # NodePort = reachable at http://<worker-ec2-public-ip>:30080
+  # (open 30080 in the worker node's security group). The Service also
+  # load-balances incoming requests across ALL the pods behind it.
+  type: NodePort
+  selector:
+    app: house-pipeline
+  ports:
+    - port: 80
+      targetPort: 8000
+      nodePort: 30080

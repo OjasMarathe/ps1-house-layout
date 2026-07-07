@@ -70,6 +70,7 @@ ENSUITE_WALL_MIN_FT: float = 4.0    # a bathroom door+ onto its bedroom
 ADJ_TOL_FT: float = 0.5            # shared wall <= this is treated as "not touching"
 SOUTH_TOL_FT: float = 2.0          # living-room south edge within this of house south
 COVERAGE_TOL_FRAC: float = 0.05    # rooms total within +/- 5% of house area
+CORRIDOR_MAX_FRAC: float = 0.15    # circulation area must stay <= 15% of usable floor
 WINDOWS_PER_BEDROOM: int = 2       # on different walls, <=1 per wall
 
 # Public zone (south of the corridor) vs private zone (north of the corridor).

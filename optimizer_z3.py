@@ -71,7 +71,30 @@ def compute_max_area(plot: Plot, sbc: SBCConstraints) -> tuple[float, dict]:
         "x_min": f(x_min), "x_max": f(x_max),
         "y_min": f(y_min), "y_max": f(y_max),
     }
-    area = (corners["x_max"] - corners["x_min"]) * (corners["y_max"] - corners["y_min"])
+    setback_area = ((corners["x_max"] - corners["x_min"])
+                    * (corners["y_max"] - corners["y_min"]))
+
+    # --- Max lot-coverage cap (zoning) -------------------------------------
+    # The setback box gives the geometric maximum, but the jurisdiction also
+    # caps the footprint at a fraction of the LOT area. That couples width*depth
+    # (a nonlinear product), so — exactly as we treat the tree — we keep Z3
+    # linear and apply the cap analytically. When it binds we return a
+    # representative legal footprint: the optimal rectangle scaled down to the
+    # capped area, re-centred E-W in the setback box and anchored at the south
+    # setback (so a centred door still lands in the entry segment).
+    lot_cap = sbc.max_lot_coverage_fraction * plot.area
+    if setback_area > lot_cap:
+        scale = (lot_cap / setback_area) ** 0.5
+        new_w = (corners["x_max"] - corners["x_min"]) * scale
+        new_d = (corners["y_max"] - corners["y_min"]) * scale
+        cx = ((px_min + sbc.side_setback_ft) + (px_max - sbc.side_setback_ft)) / 2
+        corners = {
+            "x_min": cx - new_w / 2, "x_max": cx + new_w / 2,
+            "y_min": corners["y_min"], "y_max": corners["y_min"] + new_d,
+        }
+        area = lot_cap
+    else:
+        area = setback_area
     return area, corners
 
 

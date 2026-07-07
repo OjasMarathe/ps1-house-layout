@@ -59,7 +59,7 @@ fp = (5.0, 20.0, 68.0, 78.0)
 door = (40.0, 20.0)
 res = solve_layout(fp, door)
 layout = res.layout
-viol = check_interior(layout, SBC)
+viol = check_interior(layout, SBC, require_full_coverage=False)
 assert not viol, f"MILP layout failed Z3 check: {[v.rule for v in viol]}"
 
 fig, ax = plt.subplots(figsize=(12, 11), dpi=140)

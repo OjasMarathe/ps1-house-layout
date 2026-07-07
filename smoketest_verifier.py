@@ -30,17 +30,17 @@ def main() -> int:
     passes = 0
     total = 0
 
-    # Plot bbox is x [0,80], y [0,88]. Main body x [0,80], y [8,84].
-    # Known-good: house at the Z3-optimal corners (5,20)-(75,78), 4060 sq ft
-    # — meets all setbacks AND hits the 90% area-coverage threshold.
+    # Plot bbox is x [0,80], y [0,88]. Main body x [0,80], y [8,84]. Lot area
+    # 6420 sq ft, so the 35% lot-coverage cap = 2247 sq ft and the 90%
+    # utilization floor = 2022 sq ft. Known-good: 52 x 42 = 2184 sits between.
     good = HouseGeometry(
-        corners=((5, 20), (75, 20), (75, 78), (5, 78)),
-        door=(55, 20),  # within entry segment [35, 75]
+        corners=((12, 20), (64, 20), (64, 62), (12, 62)),
+        door=(45, 20),  # south wall, within entry segment [35, 75]
     )
-    total += 1; passes += case("known-good house (Z3-optimal)", good, set())
+    total += 1; passes += case("known-good house", good, set())
 
     # Small-but-SBC-legal house: passes setbacks, FAILS area-coverage rule.
-    # 40 x 45 = 1800 sq ft < 0.9 * 4060 = 3654.
+    # 40 x 45 = 1800 sq ft < 0.9 * 2247 = 2022 (and under the 2247 cap).
     small_legal = HouseGeometry(
         corners=((10, 25), (50, 25), (50, 70), (10, 70)),
         door=(40, 25),
@@ -65,7 +65,7 @@ def main() -> int:
     # corner_inside_plot[i] that fires.
     passes += case("near tree (multi-violation)", near_tree,
                    {"rear_setback_north", "side_setback_east", "tree_buffer",
-                    "corner_inside_plot[3]"})
+                    "corner_inside_plot[3]", "max_lot_coverage"})
 
     # Door on wrong wall (north instead of south)
     door_wrong = HouseGeometry(

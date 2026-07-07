@@ -1,0 +1,550 @@
+{
+  "session_id": "demo-001",
+  "view_type": "roof",
+  "generated_by": "roof_plan_agent",
+  "n_sections": 2,
+  "roof_sections": [
+    {
+      "level": 1,
+      "name": "main",
+      "type": "gable",
+      "pitch": "5:12",
+      "pitch_ratio": 0.41667,
+      "slope_pct": 41.7,
+      "slope_angle_deg": 22.6,
+      "outline": [
+        [
+          24.0,
+          20.0
+        ],
+        [
+          66.0,
+          20.0
+        ],
+        [
+          66.0,
+          63.0
+        ],
+        [
+          24.0,
+          63.0
+        ]
+      ],
+      "overhang_ft": 0.0,
+      "eave_overhang_ft": 1.5,
+      "eave_outline": [
+        [
+          22.5,
+          18.5
+        ],
+        [
+          67.5,
+          18.5
+        ],
+        [
+          67.5,
+          64.5
+        ],
+        [
+          22.5,
+          64.5
+        ]
+      ],
+      "roof_area_sqft": 1956.5,
+      "ventilation": {
+        "code": "IRC R806.2",
+        "rule": "1/300 (balanced eave + upper)",
+        "roof_area_sqft": 1956.5,
+        "nfa_required_sqin": 939.1,
+        "eave_required_sqin": 469.6,
+        "upper_required_sqin": 469.6,
+        "roof_jacks_7x7": 13,
+        "eave_birdblock_lf": 170.0,
+        "nfa_provided_sqin": 1077.8,
+        "ok": true
+      },
+      "is_rectangular": true,
+      "drainage": [
+        "E",
+        "W"
+      ],
+      "ridge": [
+        [
+          45.0,
+          20.0
+        ],
+        [
+          45.0,
+          63.0
+        ]
+      ],
+      "hips": [],
+      "planes": [
+        {
+          "id": "west",
+          "polygon": [
+            [
+              24.0,
+              20.0
+            ],
+            [
+              45.0,
+              20.0
+            ],
+            [
+              45.0,
+              63.0
+            ],
+            [
+              24.0,
+              63.0
+            ]
+          ],
+          "drains_to": "W",
+          "slope_pct": 41.7,
+          "azimuth_deg": 270.0
+        },
+        {
+          "id": "east",
+          "polygon": [
+            [
+              45.0,
+              20.0
+            ],
+            [
+              66.0,
+              20.0
+            ],
+            [
+              66.0,
+              63.0
+            ],
+            [
+              45.0,
+              63.0
+            ]
+          ],
+          "drains_to": "E",
+          "slope_pct": 41.7,
+          "azimuth_deg": 90.0
+        }
+      ],
+      "ridge_height_ft": 28.75,
+      "eave_height_ft": 20.0,
+      "skylights": [
+        {
+          "room": "family_room",
+          "type": "skylight",
+          "center": [
+            53.0,
+            42.5
+          ],
+          "width_ft": 4.0,
+          "length_ft": 4.0,
+          "outline": [
+            [
+              51.0,
+              40.5
+            ],
+            [
+              55.0,
+              40.5
+            ],
+            [
+              55.0,
+              44.5
+            ],
+            [
+              51.0,
+              44.5
+            ]
+          ],
+          "on_plane": "east",
+          "faces": "E",
+          "reason": "low daylight (score 34) \u2014 sunroof added for extra light"
+        }
+      ]
+    },
+    {
+      "level": 0,
+      "name": "garage",
+      "type": "shed",
+      "pitch": "5:12",
+      "pitch_ratio": 0.41667,
+      "slope_pct": 41.7,
+      "slope_angle_deg": 22.6,
+      "outline": [
+        [
+          6.0,
+          20.0
+        ],
+        [
+          21.0,
+          20.0
+        ],
+        [
+          21.0,
+          42.0
+        ],
+        [
+          6.0,
+          42.0
+        ]
+      ],
+      "overhang_ft": 0.0,
+      "eave_overhang_ft": 1.5,
+      "eave_outline": [
+        [
+          4.5,
+          18.5
+        ],
+        [
+          22.5,
+          18.5
+        ],
+        [
+          22.5,
+          43.5
+        ],
+        [
+          4.5,
+          43.5
+        ]
+      ],
+      "roof_area_sqft": 357.5,
+      "ventilation": {
+        "code": "IRC R806.2",
+        "rule": "1/300 (balanced eave + upper)",
+        "roof_area_sqft": 357.5,
+        "nfa_required_sqin": 171.6,
+        "eave_required_sqin": 85.8,
+        "upper_required_sqin": 85.8,
+        "roof_jacks_7x7": 3,
+        "eave_birdblock_lf": 74.0,
+        "nfa_provided_sqin": 371.5,
+        "ok": true
+      },
+      "is_rectangular": true,
+      "drainage": [
+        "W"
+      ],
+      "ridge": [
+        [
+          21.0,
+          20.0
+        ],
+        [
+          21.0,
+          42.0
+        ]
+      ],
+      "hips": [],
+      "planes": [
+        {
+          "id": "slope",
+          "polygon": [
+            [
+              6.0,
+              20.0
+            ],
+            [
+              21.0,
+              20.0
+            ],
+            [
+              21.0,
+              42.0
+            ],
+            [
+              6.0,
+              42.0
+            ]
+          ],
+          "drains_to": "W",
+          "slope_pct": 41.7,
+          "azimuth_deg": 270.0
+        }
+      ],
+      "ridge_height_ft": 16.25,
+      "eave_height_ft": 10.0
+    }
+  ],
+  "n_skylights": 1,
+  "verified": true,
+  "n_failed": 0,
+  "violations": [],
+  "schedule": {
+    "roof_types": [
+      "gable",
+      "shed"
+    ],
+    "total_roof_area_sqft": 2314.0,
+    "ventilation": {
+      "total_roof_jacks_7x7": 16,
+      "total_eave_birdblock_lf": 244.0,
+      "all_sections_ok": true
+    },
+    "skylights": [
+      {
+        "room": "family_room",
+        "size_ft": "4x4",
+        "on_plane": "east"
+      }
+    ],
+    "attic_access": "min 22 in x 30 in, insulated & weather-stripped (IRC R807.1)"
+  },
+  "elevation_profiles": {
+    "note": "Draw each section's roof_silhouette as a polyline: u = horizontal plan coord (see horizontal_axis), z = height (ft). Walls run from z=0 up to eave_line; the roof sits on top. If mirror=true, flip u about the facade centre for an outside-looking-in view.",
+    "units": "feet",
+    "views": {
+      "south": {
+        "horizontal_axis": "x",
+        "mirror": false,
+        "sections": [
+          {
+            "name": "main",
+            "type": "gable",
+            "eave_height_ft": 20.0,
+            "ridge_height_ft": 28.75,
+            "roof_silhouette": [
+              [
+                22.5,
+                20.0
+              ],
+              [
+                45.0,
+                28.75
+              ],
+              [
+                67.5,
+                20.0
+              ]
+            ],
+            "eave_line": [
+              [
+                22.5,
+                20.0
+              ],
+              [
+                67.5,
+                20.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          },
+          {
+            "name": "garage",
+            "type": "shed",
+            "eave_height_ft": 10.0,
+            "ridge_height_ft": 16.25,
+            "roof_silhouette": [
+              [
+                4.5,
+                10.0
+              ],
+              [
+                22.5,
+                16.25
+              ]
+            ],
+            "eave_line": [
+              [
+                4.5,
+                10.0
+              ],
+              [
+                22.5,
+                10.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          }
+        ]
+      },
+      "north": {
+        "horizontal_axis": "x",
+        "mirror": true,
+        "sections": [
+          {
+            "name": "main",
+            "type": "gable",
+            "eave_height_ft": 20.0,
+            "ridge_height_ft": 28.75,
+            "roof_silhouette": [
+              [
+                22.5,
+                20.0
+              ],
+              [
+                45.0,
+                28.75
+              ],
+              [
+                67.5,
+                20.0
+              ]
+            ],
+            "eave_line": [
+              [
+                22.5,
+                20.0
+              ],
+              [
+                67.5,
+                20.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          },
+          {
+            "name": "garage",
+            "type": "shed",
+            "eave_height_ft": 10.0,
+            "ridge_height_ft": 16.25,
+            "roof_silhouette": [
+              [
+                4.5,
+                10.0
+              ],
+              [
+                22.5,
+                16.25
+              ]
+            ],
+            "eave_line": [
+              [
+                4.5,
+                10.0
+              ],
+              [
+                22.5,
+                10.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          }
+        ]
+      },
+      "east": {
+        "horizontal_axis": "y",
+        "mirror": false,
+        "sections": [
+          {
+            "name": "main",
+            "type": "gable",
+            "eave_height_ft": 20.0,
+            "ridge_height_ft": 28.75,
+            "roof_silhouette": [
+              [
+                18.5,
+                28.75
+              ],
+              [
+                64.5,
+                28.75
+              ]
+            ],
+            "eave_line": [
+              [
+                18.5,
+                20.0
+              ],
+              [
+                64.5,
+                20.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          },
+          {
+            "name": "garage",
+            "type": "shed",
+            "eave_height_ft": 10.0,
+            "ridge_height_ft": 16.25,
+            "roof_silhouette": [
+              [
+                18.5,
+                16.25
+              ],
+              [
+                43.5,
+                16.25
+              ]
+            ],
+            "eave_line": [
+              [
+                18.5,
+                10.0
+              ],
+              [
+                43.5,
+                10.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          }
+        ]
+      },
+      "west": {
+        "horizontal_axis": "y",
+        "mirror": true,
+        "sections": [
+          {
+            "name": "main",
+            "type": "gable",
+            "eave_height_ft": 20.0,
+            "ridge_height_ft": 28.75,
+            "roof_silhouette": [
+              [
+                18.5,
+                28.75
+              ],
+              [
+                64.5,
+                28.75
+              ]
+            ],
+            "eave_line": [
+              [
+                18.5,
+                20.0
+              ],
+              [
+                64.5,
+                20.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          },
+          {
+            "name": "garage",
+            "type": "shed",
+            "eave_height_ft": 10.0,
+            "ridge_height_ft": 16.25,
+            "roof_silhouette": [
+              [
+                18.5,
+                16.25
+              ],
+              [
+                43.5,
+                16.25
+              ]
+            ],
+            "eave_line": [
+              [
+                18.5,
+                10.0
+              ],
+              [
+                43.5,
+                10.0
+              ]
+            ],
+            "overhang_ft": 1.5
+          }
+        ]
+      }
+    }
+  }
+}

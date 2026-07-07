@@ -17,7 +17,7 @@ import re
 from interior_verifier_z3 import Room
 import rooms as program
 
-_ROOMS_RE = re.compile(r"#\s*ROOMS\s*:\s*(\[.*?\])\s*(?:\n|$)", re.IGNORECASE | re.DOTALL)
+_ROOMS_RE = re.compile(r"#?\s*ROOMS\s*:\s*(\[.*?\])", re.IGNORECASE | re.DOTALL)
 _ALLOWED_KINDS = set(program.REQUIRED_COUNT)
 
 

@@ -32,9 +32,11 @@ The constraint set (matches the richer 25-rule reference plus extras):
     baths_not_adjacent the two bathrooms do not share a wall
   CIRCULATION / SPATIAL
     living_near_south  living room sits within 2 ft of the south wall
+    living_gt_bedroom  living room is larger than every bedroom
     door_in_living     the front door opens into the living room (egress)
     kitchen_by_living  kitchen shares a wall with the living room (open plan)
     corridor_width     corridor clear width >= 4 ft   (via room_min_side)
+    corridor_fraction  circulation stays <= 15% of usable floor area
     connected          every room is reachable from every other (doorways)
 """
 
@@ -166,14 +168,18 @@ def _attached_bedroom(bath: Room, bedrooms: list[Room]) -> tuple[Room | None, fl
 # --------------------------------------------------------------------------- #
 def check_interior(layout: InteriorLayout, sbc: SBCConstraints,
                    require_adjacency: bool = True,
-                   coverage_tol_frac: float = program.COVERAGE_TOL_FRAC
-                   ) -> list[InteriorViolation]:
+                   require_full_coverage: bool = True,
+                   coverage_tol_frac: float = program.COVERAGE_TOL_FRAC,
+                   corridor_max_frac: float = program.CORRIDOR_MAX_FRAC,
+                   mode: str = "strict") -> list[InteriorViolation]:
     """Return list of interior violations; empty list == legal floor plan.
 
     `require_adjacency` lets a caller verify the geometry-only subset (counts,
-    containment, sizes, non-overlap, coverage) without the wall-adjacency
-    family — useful for partial/diagnostic layouts. `coverage_tol_frac` is the
-    +/- band on total-area-vs-footprint coverage (default 5%)."""
+    containment, sizes, coverage) without the wall-adjacency family — useful for
+    partial/diagnostic layouts. `require_full_coverage` controls the coverage
+    rule: when True (tiling layouts) the rooms must fill the footprint within
+    `coverage_tol_frac`; when False (free / human-sized layouts) only OVERFLOW
+    is flagged — leftover open/flex space is allowed."""
     v: list[InteriorViolation] = []
     rs = list(layout.rooms)
     fx0, fy0, fx1, fy1 = layout.footprint
@@ -190,11 +196,16 @@ def check_interior(layout: InteriorLayout, sbc: SBCConstraints,
         counts[r.kind] = counts.get(r.kind, 0) + 1
     for kind, need in program.REQUIRED_COUNT.items():
         have = counts.get(kind, 0)
-        if have != need:
+        if kind == "corridor":
+            if have < 1:   # halls/corridors: at least one, any number allowed
+                v.append(InteriorViolation(
+                    "room_count", float(have), 1.0,
+                    "Need at least one corridor / hall for circulation."))
+        elif have != need:
             v.append(InteriorViolation(
                 "room_count", float(have), float(need),
                 f"Need exactly {need} {kind}(s); layout has {have}. Program: "
-                "1 living + 1 kitchen + 1 corridor + 3 bedrooms + 2 bathrooms."))
+                "1 living + 1 kitchen + 3 bedrooms + 2 bathrooms (+ halls)."))
     for k in sorted({r.kind for r in rs} - set(program.REQUIRED_COUNT)):
         v.append(InteriorViolation(
             "room_count", 0.0, 0.0,
@@ -237,19 +248,35 @@ def check_interior(layout: InteriorLayout, sbc: SBCConstraints,
                     f"{rs[i].name} and {rs[j].name} overlap by {ov:.0f} sq ft. "
                     "Rooms must be disjoint."))
 
-    # --- coverage (no big unexplained gaps; total within +/- tol) -----------
+    # --- coverage -----------------------------------------------------------
     total = sum(r.area for r in rs)
     fp = layout.footprint_area
-    if abs(total - fp) > coverage_tol_frac * fp:
+    if require_full_coverage:
+        # freeform layouts leave thin slivers as open space — allow a wider band
+        tol = max(coverage_tol_frac, 0.12) if mode == "freeform" else coverage_tol_frac
+        bad = abs(total - fp) > tol * fp
+    else:
+        bad = total > fp * (1 + coverage_tol_frac)   # only flag overflow
+    if bad:
         gap = fp - total
         msg = (f"Rooms cover {total:.0f} sq ft vs footprint {fp:.0f} sq ft "
-               f"({'gap' if gap > 0 else 'overflow'} {abs(gap):.0f} sq ft, "
-               f"> {coverage_tol_frac*100:.0f}% tolerance).")
+               f"({'gap' if gap > 0 else 'overflow'} {abs(gap):.0f} sq ft).")
         v.append(InteriorViolation("coverage", float(total), float(fp), msg))
 
-    # --- bathrooms ----------------------------------------------------------
+    # --- corridor / circulation cap (<= 15% of usable floor area) -----------
+    corridor_area = sum(r.area for r in rs if r.kind == "corridor")
+    usable = sum(r.area for r in rs)
+    if usable > EPS and _violated(corridor_max_frac * usable, corridor_area):
+        v.append(InteriorViolation(
+            "corridor_fraction", float(corridor_area),
+            float(corridor_max_frac * usable),
+            f"Corridor/circulation is {corridor_area:.0f} sq ft = "
+            f"{corridor_area/usable*100:.0f}% of usable {usable:.0f} sq ft; "
+            f"must stay <= {corridor_max_frac*100:.0f}%."))
+
+    # --- bathrooms (strict mode only — the rigid arrangement family) --------
     bath_to_bed: dict[str, Room] = {}
-    if require_adjacency:
+    if require_adjacency and mode == "strict":
         used: set[str] = set()
         for b in baths:
             bd, wall = _attached_bedroom(b, bedrooms)
@@ -316,8 +343,16 @@ def check_interior(layout: InteriorLayout, sbc: SBCConstraints,
                 f"the south wall (spans x∈[{lv.x_min:.1f},{lv.x_max:.1f}]), inset ≥ "
                 f"{margin:.0f} ft from its side walls."))
 
+        # living room larger than every bedroom (Floor Plan acceptance rule)
+        for bd in bedrooms:
+            if _violated(lv.area, bd.area + EPS):
+                v.append(InteriorViolation(
+                    "living_gt_bedroom", float(lv.area), float(bd.area),
+                    f"{lv.name} ({lv.area:.0f} sq ft) must be larger than every "
+                    f"bedroom; {bd.name} is {bd.area:.0f} sq ft."))
+
     # --- kitchen adjoins living (open plan, no corridor between) -------------
-    if require_adjacency and kitchens and livings:
+    if require_adjacency and mode == "strict" and kitchens and livings:
         wall = max(_shared_wall(kitchens[0], lv) for lv in livings)
         if _violated(wall, program.WALL_MIN_FT):
             v.append(InteriorViolation(

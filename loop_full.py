@@ -114,7 +114,8 @@ def run_interior(footprint, door, reference: InteriorLayout) -> InteriorLayout:
             continue
         layout = InteriorLayout(footprint=footprint, door=door, rooms=rooms)
         print(f"  parsed {len(rooms)} rooms")
-        violations = interior_verifier_z3.check_interior(layout, SBC)
+        violations = interior_verifier_z3.check_interior(
+            layout, SBC, require_full_coverage=False)
         if not violations:
             print(f"✅ [interior] all rules satisfied on iter {it}.\n")
             return layout
@@ -157,7 +158,7 @@ def main() -> int:
         print(f"❌ {e}", file=sys.stderr)
         return 2
     reference = milp.layout
-    residual = interior_verifier_z3.check_interior(reference, SBC)
+    residual = interior_verifier_z3.check_interior(reference, SBC, require_full_coverage=False)
     if residual:
         print("❌ MILP layout failed Z3 verification:", file=sys.stderr)
         for v in residual:

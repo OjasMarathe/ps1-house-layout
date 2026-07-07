@@ -30,6 +30,10 @@ class SBCConstraints:
     # coverage" requirement becomes a verifiable hard constraint instead of
     # just a prompt suggestion.
     min_area_fraction_of_max: float = 0.90
+    # Maximum LOT coverage — the footprint may not exceed this fraction of the
+    # total lot area (a zoning ceiling; distinct from the min-utilization floor
+    # above). Confirmed value for Seattle Downtown NR = 0.35.
+    max_lot_coverage_fraction: float = 0.35
 
 
 SBC = SBCConstraints()

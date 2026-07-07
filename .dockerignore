@@ -1,0 +1,26 @@
+# Keep the build context tiny — exclude everything heavy/irrelevant.
+.venv
+venv
+node_modules
+__pycache__
+*.pyc
+.git
+.gitignore
+.env
+*.pptx
+*.zip
+*.pdf
+*.png
+*.jpg
+slide-*.jpg
+report/
+output/
+demo/
+build_*.js
+*_presentation*
+# Streamlit UI + LLM agents are not part of the serving image
+app.py
+studio_agent.py
+interior_hitl.py
+agent1_*.py
+agent2_*.py

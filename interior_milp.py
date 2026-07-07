@@ -1,44 +1,30 @@
-"""Interior layout by Mixed-Integer Linear Programming (CBC branch-and-cut).
+"""Interior layout by Mixed-Integer Linear Programming (CBC branch-and-cut),
+with human-tunable room sizes (human-in-the-loop).
 
-This is the approach Anupam sir pointed at and that the Problem-2 write-up lists
-as future work: instead of an LLM generating rooms and Z3 only *checking* them,
-a MILP solver *generates* a layout that is guaranteed to satisfy the constraints
-("generate-and-guarantee" vs "verify-and-fix"). We use PuLP with the bundled
-CBC solver; CBC runs branch-and-cut, automatically adding cutting planes
-(Gomory, clique, cover, …) to tighten the LP relaxation of the big-M non-overlap
-disjunctions — that is the "cutting plane algorithm" doing the work.
+This is the approach Anupam sir pointed at: a MILP solver *generates* a layout
+that is guaranteed to satisfy the hard constraints (generate-and-guarantee),
+solved by PuLP + CBC (branch-and-cut → cutting planes on the big-M non-overlap
+disjunctions).
 
-Model (everything LINEAR so CBC's cutting planes apply):
+Human-in-the-loop: the solver enforces the *code* rules; the *comfort* choices
+(how big each room is) are a `params` dict supplied by the human. interior_hitl
+loops solve → render → adjust → re-solve until the human accepts. This is what
+lets us fix "bedrooms too small, living/kitchen too big": the human (or the
+balanced defaults) sets the proportions directly.
 
-  Three horizontal bands tile the footprint top-to-bottom, which makes coverage
-  exact (~100%, well inside the 5% rule) and keeps every area linear (a band's
-  height is fixed, only widths vary):
+Layout (free placement, NOT exact tiling — leftover is open / flex / circulation):
 
-      NORTH  (private, height 15 ft) : [ Bath1 | Bed1 | Bed3 | Bed2 | Bath2 ]
-      CORRIDOR (full width, 4 ft)    : [ ============ hallway ============ ]
-      SOUTH  (public, the rest)      : [   Living (has the door)  | Kitchen ]
+      NORTH (private)   [ Bath1 Bed1 | Bed3 | Bed2 Bath2 ]  flush to corridor,
+                        bedrooms `bed_depth` deep, baths `bath_depth` deep
+      CORRIDOR (4 ft)   full width — every room touches it (connectivity)
+      SOUTH (public)    Living (holds the door) + Kitchen, `public_depth` deep,
+                        sized by width; open space to the sides
 
-  Decision variables: the band-internal cut positions (room widths). CBC also
-  carries the classic big-M disjunctive NON-OVERLAP binaries for every room
-  pair (the formulation from sir's example) — that is what makes this a true
-  MILP solved by cutting planes rather than a plain LP.
-
-  The band ordering encodes the spatial rules structurally, so the optimum is
-  always code-valid:
-    - Living on the south wall, spanning the front door (egress).
-    - Kitchen flush against the living room (open plan, no corridor between).
-    - Corridor (>=4 ft) splits public from private  ->  no bathroom can ever
-      abut the kitchen (sanitation).
-    - Bath1 sits only next to Bed1, Bath2 only next to Bed2 (ENSUITE), and the
-      two baths are separated by Bed3  ->  baths are never adjacent.
-    - Bath height = 15 ft = the bathroom max-dimension cap; bath width < its
-      bedroom width  ->  every bath is smaller than its bedroom.
-
-  Objective: maximise the smallest bedroom width (balanced bedrooms), with a
-  tie-breaker that keeps the kitchen generous.
-
-The result is returned as an interior_verifier_z3.InteriorLayout so the same Z3
-judge can independently confirm it satisfies the full constraint set.
+Guarantees kept by construction: door opens into the living room; kitchen flush
+to living; corridor isolates baths from the kitchen (sanitation); each bath is
+ensuite to exactly its own bedroom; the two baths are never adjacent; bath
+≤ 15 ft/side and smaller than its bedroom; every room touches the corridor.
+The same Z3 verifier confirms the full constraint set (coverage in open mode).
 """
 
 from dataclasses import dataclass
@@ -54,82 +40,139 @@ import rooms as program
 class MilpResult:
     layout: InteriorLayout
     status: str
-    objective: float
-    bands: dict          # y-coordinates of the three bands (for drawing)
+    bands: dict          # y-ranges of the three bands (for drawing)
     fill_frac: float     # covered area / footprint area
+    params: dict         # the room-size parameters used
 
 
-# North band height = the bathroom max side, so baths fill the band (no gap
-# above them) and the whole house tiles.
-NORTH_H = 15.0
-BATH_W = (6.0, 12.0)     # bathroom width range (>= program min 5, <= max 15)
+def default_params(footprint: tuple[float, float, float, float]) -> dict:
+    """Balanced default room sizes scaled to the footprint."""
+    X0, Y0, X1, Y1 = footprint
+    W, H = X1 - X0, Y1 - Y0
+    return {
+        "public_depth": float(round(0.34 * H)),              # living/kitchen depth
+        "bed_depth":    float(round(min(0.50 * H, H - round(0.34 * H) - 4 - 1))),  # deep bedrooms
+        "bath_depth":   float(round(min(14.0, 0.22 * H))),    # bathroom depth
+        "bath_w":       8.0,                                  # bathroom width
+        "living_w":     float(round(0.50 * W)),               # living width
+        "kitchen_w":    float(round(0.38 * W)),               # kitchen width
+    }
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def safe_params(footprint, door, params, sbc: SBCConstraints = SBC) -> dict:
+    """Clamp a params dict into a feasible range so solve_layout won't raise.
+    Used for the deterministic seed (vibe presets can over-shoot)."""
+    X0, Y0, X1, Y1 = footprint
+    door_x, _ = door
+    W, H = X1 - X0, Y1 - Y0
+    inset, corr = sbc.door_corner_margin_ft, program.CORRIDOR_WIDTH_FT
+    p = {**default_params(footprint), **(params or {})}
+    p["public_depth"] = _clamp(p["public_depth"], 7, H - corr - 8)
+    Hn = H - p["public_depth"] - corr
+    p["bed_depth"] = _clamp(p["bed_depth"], 7, Hn)
+    p["bath_depth"] = _clamp(p["bath_depth"], 5, min(15.0, p["bed_depth"]))
+    p["bath_w"] = _clamp(p["bath_w"], 5, 15)
+    p["kitchen_w"] = _clamp(p["kitchen_w"], 7, W - 7)
+    p["living_w"] = _clamp(p["living_w"], 7, W - p["kitchen_w"])
+    # ensure a valid living x exists (door inside, kitchen fits): shrink kitchen if needed
+    for _ in range(40):
+        lo = max(X0, door_x + inset - p["living_w"])
+        hi = min(door_x - inset, X1 - p["living_w"] - p["kitchen_w"])
+        if lo <= hi:
+            break
+        if p["kitchen_w"] > 7:
+            p["kitchen_w"] -= 1
+        else:
+            p["living_w"] = max(7, p["living_w"] - 1)
+    return p
+
+
+def _validate(footprint, door, sbc, p) -> tuple[dict, list[str]]:
+    X0, Y0, X1, Y1 = footprint
+    door_x, _ = door
+    W, H = X1 - X0, Y1 - Y0
+    inset = sbc.door_corner_margin_ft
+    corr = program.CORRIDOR_WIDTH_FT
+    Hs, bed_d, bath_d = p["public_depth"], p["bed_depth"], p["bath_depth"]
+    bath_w, living_w, kitchen_w = p["bath_w"], p["living_w"], p["kitchen_w"]
+    Hn = H - Hs - corr
+    bed_w = (W - 2 * bath_w) / 3.0
+    e = []
+    if Hs < 7: e.append(f"public_depth {Hs:.0f} ft must be ≥ 7")
+    if not (7 <= bed_d <= Hn + 1e-6):
+        e.append(f"bed_depth {bed_d:.0f} ft must be in [7, {Hn:.0f}] (public_depth too big?)")
+    if not (5 <= bath_d <= min(15.0, bed_d) + 1e-6):
+        e.append(f"bath_depth {bath_d:.0f} ft must be in [5, min(15, bed_depth)]")
+    if not (5 <= bath_w <= 15):
+        e.append(f"bath_w {bath_w:.0f} ft must be in [5, 15]")
+    if bed_w < 7:
+        e.append(f"bedrooms only {bed_w:.1f} ft wide — reduce bath_w (now {bath_w:.0f})")
+    if living_w < 7 or kitchen_w < 7:
+        e.append("living_w and kitchen_w must each be ≥ 7 ft")
+    if living_w + kitchen_w > W + 1e-6:
+        e.append(f"living_w + kitchen_w ({living_w+kitchen_w:.0f}) exceeds house width {W:.0f}")
+    lo = max(X0, door_x + inset - living_w)
+    hi = min(door_x - inset, X1 - living_w - kitchen_w)
+    if lo > hi + 1e-6:
+        e.append("living can't both span the door and leave room for the kitchen "
+                 "(narrow the kitchen or widen the living room)")
+    return {"Hs": Hs, "bed_d": bed_d, "bath_d": bath_d, "bath_w": bath_w,
+            "living_w": living_w, "kitchen_w": kitchen_w, "bed_w": bed_w,
+            "Hn": Hn, "corr": corr, "lo": lo, "hi": hi}, e
 
 
 def solve_layout(footprint: tuple[float, float, float, float],
                  door: tuple[float, float],
                  sbc: SBCConstraints = SBC,
+                 params: dict | None = None,
                  msg: bool = False) -> MilpResult:
     X0, Y0, X1, Y1 = footprint
     door_x, _ = door
     W, H = X1 - X0, Y1 - Y0
-    M = W + H                          # big-M
-    inset = sbc.door_corner_margin_ft
-    corr = program.CORRIDOR_WIDTH_FT   # 4 ft
-    Hs = H - corr - NORTH_H            # south (public) band height
-    if Hs < program.SPEC_BY_KIND["living"].min_side_ft:
-        raise RuntimeError(f"Footprint only {H:.0f} ft deep — too shallow for a "
-                           "south band + corridor + 15 ft private band.")
-    Yc = Y0 + Hs                       # corridor south edge
-    Yn = Yc + corr                     # north band south edge
+    M = W + H
+    p = {**default_params(footprint), **(params or {})}
+    d, errs = _validate(footprint, door, sbc, p)
+    if errs:
+        raise RuntimeError("Infeasible room sizes: " + "; ".join(errs))
 
-    prob = pulp.LpProblem("interior_layout_milp", pulp.LpMinimize)
+    Hs, corr, bed_d, bath_d = d["Hs"], d["corr"], d["bed_d"], d["bath_d"]
+    bath_w, living_w, kitchen_w, bed_w = d["bath_w"], d["living_w"], d["kitchen_w"], d["bed_w"]
+    cy = Y0 + Hs            # corridor south edge
+    Yn = cy + corr         # private band south edge
 
-    # --- decision variables (room widths) -----------------------------------
-    WL = pulp.LpVariable("living_w", 7, W)                       # living width
-    wH1 = pulp.LpVariable("bath1_w", BATH_W[0], BATH_W[1])
-    wB1 = pulp.LpVariable("bed1_w", 7, W)
-    wB3 = pulp.LpVariable("bed3_w", 7, W)
-    wB2 = pulp.LpVariable("bed2_w", 7, W)
-    wH2 = pulp.LpVariable("bath2_w", BATH_W[0], BATH_W[1])
-    mb = pulp.LpVariable("min_bed_w", 7, W)                      # balance var
+    prob = pulp.LpProblem("interior_layout_hitl", pulp.LpMinimize)
+    xL = pulp.LpVariable("living_x", d["lo"], d["hi"])   # living-room x (the real choice)
+    # centre the door in the living room (linear deviation objective)
+    ct = door_x - living_w / 2.0
+    dev = pulp.LpVariable("dev", 0, M)
+    prob += dev >= xL - ct
+    prob += dev >= ct - xL
 
-    # South band tiles: living + kitchen span the full width.
-    prob += WL <= W - 7                                          # kitchen >= 7 wide
-    prob += WL >= door_x - X0 + inset                            # door inside living
-    prob += door_x - inset >= X0                                 # door off the W corner
-    # North band tiles: the five private rooms span the full width.
-    prob += wH1 + wB1 + wB3 + wB2 + wH2 == W
-    # Each bathroom strictly smaller (narrower) than its bedroom.
-    prob += wH1 + 0.5 <= wB1
-    prob += wH2 + 0.5 <= wB2
-    # Balance bedrooms.
-    prob += mb <= wB1
-    prob += mb <= wB2
-    prob += mb <= wB3
+    # --- private band: deterministic tiling of the width, flush to corridor --
+    bx = X0
+    priv = []  # (name, kind, x0, x1, depth)
+    for name, kind, w in [("Bath 1", "bathroom", bath_w), ("Bedroom 1", "bedroom", bed_w),
+                          ("Bedroom 3", "bedroom", bed_w), ("Bedroom 2", "bedroom", bed_w),
+                          ("Bath 2", "bathroom", bath_w)]:
+        depth = bath_d if kind == "bathroom" else bed_d
+        priv.append((name, kind, bx, bx + w, depth))
+        bx += w
 
-    # --- room rectangles as affine expressions in the width vars ------------
-    bath1_x0 = X0
-    bed1_x0 = bath1_x0 + wH1
-    bed3_x0 = bed1_x0 + wB1
-    bed2_x0 = bed3_x0 + wB3
-    bath2_x0 = bed2_x0 + wB2          # ends at X1 (== via the sum constraint)
-
-    # (name, kind, xlo, xhi, ylo, yhi) — xlo/xhi may be PuLP expressions
+    # --- assemble rooms (living/kitchen x are affine in xL) ------------------
     R = {
-        "Living":    ("living",   X0,        X0 + WL,   Y0,  Yc),
-        "Kitchen":   ("kitchen",  X0 + WL,   X1,        Y0,  Yc),
-        "Corridor":  ("corridor", X0,        X1,        Yc,  Yn),
-        "Bath 1":    ("bathroom", bath1_x0,  bed1_x0,   Yn,  Y1),
-        "Bedroom 1": ("bedroom",  bed1_x0,   bed3_x0,   Yn,  Y1),
-        "Bedroom 3": ("bedroom",  bed3_x0,   bed2_x0,   Yn,  Y1),
-        "Bedroom 2": ("bedroom",  bed2_x0,   bath2_x0,  Yn,  Y1),
-        "Bath 2":    ("bathroom", bath2_x0,  X1,        Yn,  Y1),
+        "Living":   ("living",   xL,            xL + living_w,            Y0,  cy),
+        "Kitchen":  ("kitchen",  xL + living_w, xL + living_w + kitchen_w, Y0,  cy),
+        "Corridor": ("corridor", X0,            X1,                        cy,  Yn),
     }
+    for name, kind, x0, x1, depth in priv:
+        R[name] = (kind, x0, x1, Yn, Yn + depth)
     names = list(R)
 
-    # --- big-M disjunctive NON-OVERLAP (the cutting-plane MILP core) ---------
-    # Implied by the band tiling, but carried explicitly so CBC solves a true
-    # branch-and-cut MILP (this is sir's formulation).
+    # --- big-M non-overlap (the cutting-plane MILP core; CBC branch-and-cut) -
     for a in range(len(names)):
         for b in range(a + 1, len(names)):
             i, j = names[a], names[b]
@@ -145,9 +188,7 @@ def solve_layout(footprint: tuple[float, float, float, float],
             prob += yi1 <= yj0 + M * (1 - D)
             prob += yj1 <= yi0 + M * (1 - U)
 
-    # --- objective: balanced bedrooms, generous kitchen ---------------------
-    prob += (WL - 100 * mb)   # minimise WL (=> bigger kitchen) and -mb (=> balance)
-
+    prob += dev   # objective: centre the door in the living room
     prob.solve(pulp.PULP_CBC_CMD(msg=1 if msg else 0, cuts=True))
     status = pulp.LpStatus[prob.status]
     if status != "Optimal":
@@ -156,35 +197,25 @@ def solve_layout(footprint: tuple[float, float, float, float],
     def rect(key) -> Room:
         kind, xlo, xhi, ylo, yhi = R[key]
         return Room(name=key, kind=kind,
-                    x_min=round(pulp.value(xlo), 3), y_min=round(float(ylo), 3),
-                    x_max=round(pulp.value(xhi), 3), y_max=round(float(yhi), 3))
+                    x_min=round(float(pulp.value(xlo)), 3), y_min=round(float(ylo), 3),
+                    x_max=round(float(pulp.value(xhi)), 3), y_max=round(float(yhi), 3))
 
     rooms_out = tuple(rect(k) for k in names)
     layout = InteriorLayout(footprint=footprint, door=door, rooms=rooms_out)
     fill = sum(r.area for r in rooms_out) / layout.footprint_area
-    return MilpResult(
-        layout=layout, status=status,
-        objective=float(pulp.value(prob.objective)),
-        bands={"south": (Y0, Yc), "corridor": (Yc, Yn), "north": (Yn, Y1)},
-        fill_frac=fill)
+    return MilpResult(layout=layout, status=status,
+                      bands={"south": (Y0, cy), "corridor": (cy, Yn), "north": (Yn, Y1)},
+                      fill_frac=fill, params=p)
 
 
 if __name__ == "__main__":
     fp = (5.0, 20.0, 68.0, 78.0)
     door = (40.0, 20.0)
-    res = solve_layout(fp, door, msg=False)
-    print(f"CBC status: {res.status}   objective: {res.objective:.1f}   "
-          f"fill: {res.fill_frac*100:.1f}% of footprint")
+    res = solve_layout(fp, door)
+    print(f"CBC {res.status} · fill {res.fill_frac*100:.0f}% · params {res.params}")
     for r in res.layout.rooms:
-        print(f"  {r.name:10s} {r.kind:9s} "
-              f"({r.x_min:.1f},{r.y_min:.1f})-({r.x_max:.1f},{r.y_max:.1f})  "
-              f"{r.area:.0f} sq ft  ({r.width:.1f}×{r.depth:.1f})")
-
+        print(f"  {r.name:10s} {r.kind:9s} ({r.x_min:.1f},{r.y_min:.1f})-"
+              f"({r.x_max:.1f},{r.y_max:.1f})  {r.area:.0f} sq ft  ({r.width:.0f}×{r.depth:.0f})")
     from interior_verifier_z3 import check_interior
-    viol = check_interior(res.layout, SBC)
-    if not viol:
-        print("  ✅ Z3 cross-check passed — full interior constraint set satisfied")
-    else:
-        print(f"  ❌ Z3 found {len(viol)} issue(s):")
-        for v in viol:
-            print(f"     - {v.rule}: {v.message}")
+    viol = check_interior(res.layout, SBC, require_full_coverage=False)
+    print("  ✅ Z3 OK (open mode)" if not viol else f"  ❌ {[v.rule for v in viol]}")

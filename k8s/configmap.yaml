@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: house-pipeline-config
+  namespace: house-pipeline
+data:
+  # The building-code "artifacts" (city rule JSONs) live in S3; the pod pulls
+  # them at startup (see artifacts.py). Leave S3_BUCKET empty to use the JSONs
+  # baked into the image instead — both work.
+  S3_BUCKET: ""                 # e.g. "my-house-codes"
+  CITYCODES_PREFIX: "citycodes/"
+  AWS_REGION: "us-east-1"
